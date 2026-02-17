@@ -4,6 +4,7 @@ import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { SessionMemory } from "../../src/session/memory"
+import { SessionPrompt } from "../../src/session/prompt"
 import { tmpdir } from "../fixture/fixture"
 
 async function push(sessionID: string, dir: string, user: string, assistant: string) {
@@ -212,6 +213,68 @@ describe("session memory", () => {
         const count = memory.split("<!-- hb:" + tail + " -->").length - 1
 
         expect(count).toBe(1)
+      },
+    })
+  })
+
+  test("updates USER.md and IDENTITY.md from explicit naming", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await SessionMemory.ensure({ directory: tmp.path })
+        const session = await Session.create({ key: "main" })
+        await push(session.id, tmp.path, "你叫Luffy, 我叫Xiang", "收到")
+        await SessionMemory.update({
+          session: {
+            id: session.id,
+            key: session.key,
+            directory: session.directory,
+          },
+          messages: await Session.messages({ sessionID: session.id }),
+        })
+
+        const file = SessionMemory.workspace(session.directory)
+        const user = await Bun.file(file.user).text()
+        const identity = await Bun.file(file.identity).text()
+        const bootstrap = await Bun.file(file.bootstrap).exists()
+        const done = await Bun.file(file.bootstrapDone).exists()
+
+        expect(user).toContain("- Name: Xiang")
+        expect(user).toContain("- What to call them: Xiang")
+        expect(identity).toContain("- Name: Luffy")
+        expect(bootstrap).toBe(false)
+        expect(done).toBe(true)
+      },
+    })
+  })
+
+  test("syncs profile memory during prompt without waiting for heartbeat", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await SessionMemory.ensure({ directory: tmp.path })
+        const session = await Session.create({ key: "main" })
+
+        await SessionPrompt.prompt({
+          sessionID: session.id,
+          noReply: true,
+          parts: [
+            {
+              type: "text",
+              text: "你叫Luffy, 我叫Xiang",
+            },
+          ],
+        })
+
+        const file = SessionMemory.workspace(tmp.path)
+        const user = await Bun.file(file.user).text()
+        const identity = await Bun.file(file.identity).text()
+
+        expect(user).toContain("- Name: Xiang")
+        expect(user).toContain("- What to call them: Xiang")
+        expect(identity).toContain("- Name: Luffy")
       },
     })
   })
