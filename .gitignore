@@ -6,6 +6,8 @@ node_modules
 .idea
 .vscode
 .codex
+/.opencode/
+**/.opencode/
 *~
 playground
 tmp
