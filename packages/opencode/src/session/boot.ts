@@ -1,4 +1,3 @@
-import fs from "fs/promises"
 import { Instance } from "@/project/instance"
 import { Log } from "@/util/log"
 import { Session } from "."
@@ -48,32 +47,6 @@ export namespace SessionBoot {
     return Session.create({ key: "main" })
   }
 
-  async function ready(file: { identity: string; user: string }) {
-    const identity = await Bun.file(file.identity)
-      .text()
-      .catch(() => "")
-    const user = await Bun.file(file.user)
-      .text()
-      .catch(() => "")
-    const name = identity.match(/^- Name:\s*(.*)$/m)?.[1]?.trim()
-    const call = user.match(/^- What to call them:\s*(.*)$/m)?.[1]?.trim()
-    return !!name && !!call
-  }
-
-  async function reconcile() {
-    const file = SessionMemory.workspace(Instance.directory)
-    const hasBootstrap = await Bun.file(file.bootstrap).exists()
-    if (!hasBootstrap) return false
-
-    const done = await ready(file)
-    if (!done) return false
-
-    await fs.rm(file.bootstrap, { force: true })
-    await Bun.write(file.bootstrapDone, "done\n")
-    log.info("bootstrap completed")
-    return true
-  }
-
   function text(items: string[]) {
     return [
       "[boot]",
@@ -86,7 +59,10 @@ export namespace SessionBoot {
   }
 
   export async function run() {
-    await reconcile()
+    const done = await SessionMemory.reconcile(Instance.directory)
+    if (done) {
+      log.info("bootstrap completed")
+    }
     const file = SessionMemory.workspace(Instance.directory)
     const content = await Bun.file(file.boot)
       .text()

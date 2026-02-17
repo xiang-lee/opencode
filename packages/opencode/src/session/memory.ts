@@ -128,6 +128,62 @@ export namespace SessionMemory {
     return value.slice(0, max - 3) + "..."
   }
 
+  function name(input: string) {
+    const value = input
+      .trim()
+      .replace(/^[\s"'`“”‘’「」『』（）()\[\]{}<>]+/, "")
+      .replace(/[\s"'`“”‘’「」『』（）()\[\]{}<>]+$/, "")
+      .replace(/[，。,.!！?？;；:：]+$/, "")
+      .trim()
+    if (!value) return
+    if (value.length > 40) return
+    if (/^(我|你|他|她|它|我们|你们|他们)$/i.test(value)) return
+    return value
+  }
+
+  function segments(input: string[]) {
+    return input
+      .flatMap((line) => line.split("\n"))
+      .flatMap((line) => line.split(/[，,。.!！?？;；]/g))
+      .map((line) => line.trim())
+      .filter(Boolean)
+  }
+
+  function infer(input: string[]) {
+    const rows = segments(input)
+    let user: string | undefined
+    let assistant: string | undefined
+
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const line = rows[i]
+
+      if (!user) {
+        const hit =
+          line.match(/^我叫\s*(.+)$/)?.[1] ??
+          line.match(/^叫我\s*(.+)$/)?.[1] ??
+          line.match(/^我的名字是\s*(.+)$/)?.[1] ??
+          line.match(/^my name is\s+(.+)$/i)?.[1] ??
+          line.match(/^call me\s+(.+)$/i)?.[1]
+        const parsed = hit ? name(hit) : undefined
+        if (parsed) user = parsed
+      }
+
+      if (!assistant) {
+        const hit =
+          line.match(/^你叫\s*(.+)$/)?.[1] ??
+          line.match(/^你的名字是\s*(.+)$/)?.[1] ??
+          line.match(/^you are\s+(.+)$/i)?.[1] ??
+          line.match(/^your name is\s+(.+)$/i)?.[1]
+        const parsed = hit ? name(hit) : undefined
+        if (parsed) assistant = parsed
+      }
+
+      if (user && assistant) break
+    }
+
+    return { user, assistant }
+  }
+
   function isText(part: MessageV2.Part): part is MessageV2.TextPart {
     if (part.type !== "text") return false
     return !part.ignored
@@ -169,6 +225,26 @@ export namespace SessionMemory {
     if (found) return false
     await fs.mkdir(path.dirname(file), { recursive: true })
     await Bun.write(file, content.trim() + "\n")
+    return true
+  }
+
+  function line(label: string) {
+    return new RegExp("^- " + label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ":\\s*(.*)$", "m")
+  }
+
+  async function set(file: string, label: string, value: string) {
+    if (!value.trim()) return false
+    const prev = await text(file)
+    const pattern = line(label)
+    const nextLine = "- " + label + ": " + value.trim()
+    if (pattern.test(prev)) {
+      const next = prev.replace(pattern, nextLine)
+      if (next === prev) return false
+      await Bun.write(file, next)
+      return true
+    }
+    const next = [prev.trim(), nextLine].filter(Boolean).join("\n") + "\n"
+    await Bun.write(file, next)
     return true
   }
 
@@ -270,6 +346,7 @@ export namespace SessionMemory {
           .slice(-8),
       ),
     )
+    const profile = infer(users)
 
     const stamp = new Date().toISOString()
     const marker = "<!-- hb:" + tail + " -->"
@@ -312,6 +389,14 @@ export namespace SessionMemory {
     if (file.session) await append(file.session, marker, sessionBlock)
 
     if (main(input.session.key)) {
+      const local = workspace(input.session.directory)
+      if (profile.user) {
+        await set(file.user, "Name", profile.user)
+        await set(file.user, "What to call them", profile.user)
+      }
+      if (profile.assistant) {
+        await set(local.identity, "Name", profile.assistant)
+      }
       await append(file.memory, marker, projectBlock)
       if (userBlock) {
         await append(file.user, marker, userBlock)
@@ -319,6 +404,7 @@ export namespace SessionMemory {
           await append(file.legacy, marker, userBlock)
         }
       }
+      await reconcile(input.session.directory)
     }
 
     return true
@@ -338,4 +424,28 @@ export namespace SessionMemory {
     ])
     return result.some(Boolean)
   })
+
+  export async function ready(directory: string) {
+    const file = workspace(directory)
+    const identity = await Bun.file(file.identity)
+      .text()
+      .catch(() => "")
+    const user = await Bun.file(file.user)
+      .text()
+      .catch(() => "")
+    const name = identity.match(/^- Name:\s*(.*)$/m)?.[1]?.trim()
+    const call = user.match(/^- What to call them:\s*(.*)$/m)?.[1]?.trim()
+    return !!name && !!call
+  }
+
+  export async function reconcile(directory: string) {
+    const file = workspace(directory)
+    const hasBootstrap = await Bun.file(file.bootstrap).exists()
+    if (!hasBootstrap) return false
+    const done = await ready(directory)
+    if (!done) return false
+    await fs.rm(file.bootstrap, { force: true })
+    await Bun.write(file.bootstrapDone, "done\n")
+    return true
+  }
 }

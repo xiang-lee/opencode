@@ -162,6 +162,23 @@ export namespace SessionPrompt {
 
     const message = await createUserMessage(input)
     await Session.touch(input.sessionID)
+    await Session.messages({ sessionID: input.sessionID, limit: 48 })
+      .then((messages) =>
+        SessionMemory.update({
+          session: {
+            id: session.id,
+            key: session.key,
+            directory: session.directory,
+          },
+          messages,
+        }),
+      )
+      .catch((error) => {
+        log.warn("prompt memory sync failed", {
+          error,
+          sessionID: input.sessionID,
+        })
+      })
 
     // this is backwards compatibility for allowing `tools` to be specified when
     // prompting
