@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index, primaryKey } from "drizzle-orm/sqlite-core"
+import { sqliteTable, text, integer, index, primaryKey, uniqueIndex } from "drizzle-orm/sqlite-core"
 import { ProjectTable } from "../project/project.sql"
 import type { MessageV2 } from "./message-v2"
 import type { Snapshot } from "@/snapshot"
@@ -16,6 +16,7 @@ export const SessionTable = sqliteTable(
       .notNull()
       .references(() => ProjectTable.id, { onDelete: "cascade" }),
     parent_id: text(),
+    session_key: text(),
     slug: text().notNull(),
     directory: text().notNull(),
     title: text().notNull(),
@@ -31,7 +32,11 @@ export const SessionTable = sqliteTable(
     time_compacting: integer(),
     time_archived: integer(),
   },
-  (table) => [index("session_project_idx").on(table.project_id), index("session_parent_idx").on(table.parent_id)],
+  (table) => [
+    index("session_project_idx").on(table.project_id),
+    index("session_parent_idx").on(table.parent_id),
+    uniqueIndex("session_project_key_unique_idx").on(table.project_id, table.session_key),
+  ],
 )
 
 export const MessageTable = sqliteTable(

@@ -59,6 +59,7 @@ export namespace Session {
     const revert = row.revert ?? undefined
     return {
       id: row.id,
+      key: row.session_key ?? undefined,
       slug: row.slug,
       projectID: row.project_id,
       directory: row.directory,
@@ -81,6 +82,7 @@ export namespace Session {
   export function toRow(info: Info) {
     return {
       id: info.id,
+      session_key: info.key,
       project_id: info.projectID,
       parent_id: info.parentID,
       slug: info.slug,
@@ -114,6 +116,7 @@ export namespace Session {
   export const Info = z
     .object({
       id: Identifier.schema("session"),
+      key: z.string().optional(),
       slug: z.string(),
       projectID: z.string(),
       directory: z.string(),
@@ -193,16 +196,29 @@ export namespace Session {
     z
       .object({
         parentID: Identifier.schema("session").optional(),
+        key: z.string().optional(),
         title: z.string().optional(),
         permission: Info.shape.permission,
       })
       .optional(),
     async (input) => {
+      const key = normalizeKey(input?.key)
+      if (key) {
+        const existing = await getByKey(key).catch(() => undefined)
+        if (existing) return existing
+      }
       return createNext({
         parentID: input?.parentID,
+        key,
         directory: Instance.directory,
         title: input?.title,
         permission: input?.permission,
+      }).catch((error) => {
+        if (!key) throw error
+        if (`${error}`.includes("UNIQUE constraint failed: session.project_id, session.session_key")) {
+          return getByKey(key)
+        }
+        throw error
       })
     },
   )
@@ -266,6 +282,7 @@ export namespace Session {
 
   export async function createNext(input: {
     id?: string
+    key?: string
     title?: string
     parentID?: string
     directory: string
@@ -273,6 +290,7 @@ export namespace Session {
   }) {
     const result: Info = {
       id: Identifier.descending("session", input.id),
+      key: normalizeKey(input.key),
       slug: Slug.create(),
       version: Installation.VERSION,
       projectID: Instance.project.id,
@@ -315,6 +333,21 @@ export namespace Session {
   export const get = fn(Identifier.schema("session"), async (id) => {
     const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
     if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
+    return fromRow(row)
+  })
+
+  export const getByKey = fn(z.string(), async (key) => {
+    const value = normalizeKey(key)
+    if (!value) throw new NotFoundError({ message: `Session not found for key: ${key}` })
+    const row = Database.use((db) =>
+      db
+        .select()
+        .from(SessionTable)
+        .where(and(eq(SessionTable.project_id, Instance.project.id), eq(SessionTable.session_key, value)))
+        .orderBy(desc(SessionTable.time_updated))
+        .get(),
+    )
+    if (!row) throw new NotFoundError({ message: `Session not found for key: ${key}` })
     return fromRow(row)
   })
 
@@ -507,6 +540,7 @@ export namespace Session {
 
   export function* list(input?: {
     directory?: string
+    key?: string
     roots?: boolean
     start?: number
     search?: string
@@ -517,6 +551,11 @@ export namespace Session {
 
     if (input?.directory) {
       conditions.push(eq(SessionTable.directory, input.directory))
+    }
+    if (input?.key !== undefined) {
+      const key = normalizeKey(input.key)
+      if (!key) return
+      conditions.push(eq(SessionTable.session_key, key))
     }
     if (input?.roots) {
       conditions.push(isNull(SessionTable.parent_id))
@@ -577,6 +616,13 @@ export namespace Session {
       log.error(e)
     }
   })
+
+  export function normalizeKey(key?: string) {
+    if (!key) return
+    const value = key.trim().toLowerCase()
+    if (!value) return
+    return value
+  }
 
   export const updateMessage = fn(MessageV2.Info, async (msg) => {
     const time_created = msg.role === "user" ? msg.time.created : msg.time.created
