@@ -65,12 +65,42 @@ async function push(sessionID: string, dir: string, user: string, assistant: str
 }
 
 describe("session memory", () => {
+  test("creates workspace memory templates per project", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const changed = await SessionMemory.ensure({ directory: tmp.path })
+        const files = SessionMemory.workspace(tmp.path)
+        const soul = await Bun.file(files.soul).text()
+        const tools = await Bun.file(files.tools).text()
+        const identity = await Bun.file(files.identity).text()
+        const user = await Bun.file(files.user).text()
+        const heartbeat = await Bun.file(files.heartbeat).text()
+        const boot = await Bun.file(files.boot).text()
+        const bootstrap = await Bun.file(files.bootstrap).text()
+
+        expect(changed).toBe(true)
+        expect(soul).toContain("# SOUL.md")
+        expect(tools).toContain("# TOOLS.md")
+        expect(identity).toContain("# IDENTITY.md")
+        expect(user).toContain("# USER.md")
+        expect(heartbeat).toContain("# HEARTBEAT.md")
+        expect(boot).toContain("# BOOT.md")
+        expect(bootstrap).toContain("# BOOTSTRAP.md")
+
+        const unchanged = await SessionMemory.ensure({ directory: tmp.path })
+        expect(unchanged).toBe(false)
+      },
+    })
+  })
+
   test("writes memory files and loads them into system context", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const session = await Session.create({ key: "alpha" })
+        const session = await Session.create({ key: "main" })
         await push(session.id, tmp.path, "Please remember I prefer Bun scripts", "Saved. I will prefer Bun.")
         const messages = await Session.messages({ sessionID: session.id })
         const updated = await SessionMemory.update({
@@ -91,16 +121,57 @@ describe("session memory", () => {
         const memory = await Bun.file(file.memory).text()
         const user = await Bun.file(file.user).text()
         const key = await Bun.file(file.session!).text()
+        const daily = SessionMemory.daily(session.directory)
+        const log = await Bun.file(daily.today).text()
         const system = await SessionMemory.system({
           id: session.id,
           key: session.key,
           directory: session.directory,
         })
+        const files = SessionMemory.workspace(session.directory)
 
         expect(memory).toContain("Last user request")
         expect(user).toContain("Inferred preferences")
         expect(key).toContain("Recent user intent")
+        expect(log).toContain("- User:")
         expect(system.some((item) => item.includes("Memory from: "))).toBe(true)
+        expect(system.some((item) => item.includes(files.soul))).toBe(true)
+        expect(system.some((item) => item.includes(files.tools))).toBe(true)
+        expect(system.some((item) => item.includes(files.identity))).toBe(true)
+        expect(system.some((item) => item.includes(file.memory))).toBe(true)
+      },
+    })
+  })
+
+  test("does not inject MEMORY.md for non-main sessions", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const main = await Session.create({ key: "main" })
+        await push(main.id, tmp.path, "Remember I like concise replies", "Got it")
+        await SessionMemory.update({
+          session: {
+            id: main.id,
+            key: main.key,
+            directory: main.directory,
+          },
+          messages: await Session.messages({ sessionID: main.id }),
+        })
+
+        const side = await Session.create({ key: "alpha" })
+        const system = await SessionMemory.system({
+          id: side.id,
+          key: side.key,
+          directory: side.directory,
+        })
+        const file = SessionMemory.paths({
+          id: side.id,
+          key: side.key,
+          directory: side.directory,
+        })
+
+        expect(system.some((item) => item.includes(file.memory))).toBe(false)
       },
     })
   })
@@ -110,7 +181,7 @@ describe("session memory", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const session = await Session.create({ key: "beta" })
+        const session = await Session.create({ key: "main" })
         await push(session.id, tmp.path, "Remember: never use npm here", "Understood.")
         const messages = await Session.messages({ sessionID: session.id })
         const tail = messages[messages.length - 1]!.info.id

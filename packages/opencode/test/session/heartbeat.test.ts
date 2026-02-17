@@ -65,12 +65,80 @@ async function push(sessionID: string, dir: string, user: string, assistant: str
 }
 
 describe("session heartbeat", () => {
+  test("parses HEARTBEAT.md tasks and directives", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await SessionMemory.ensure({ directory: tmp.path })
+        const file = SessionMemory.workspace(tmp.path).heartbeat
+        await Bun.write(
+          file,
+          [
+            "# comment",
+            "@every 2m",
+            "@retry 10m",
+            "@quiet 23:00-08:00",
+            "@reply false",
+            "",
+            "- Check inbox",
+            "  ",
+            "# another",
+            "Review deploy checklist",
+          ].join("\n"),
+        )
+
+        const plan = await SessionHeartbeat.plan(tmp.path)
+        const tasks = await SessionHeartbeat.tasks(tmp.path)
+        expect(tasks).toEqual(["Check inbox", "Review deploy checklist"])
+        expect(plan.reply).toBe(false)
+        expect(plan.every).toBe(2 * 60 * 1000)
+        expect(plan.retry).toBe(10 * 60 * 1000)
+        expect(plan.quiet).toEqual({
+          start: 23 * 60,
+          end: 8 * 60,
+        })
+      },
+    })
+  })
+
+  test("adds periodic heartbeat prompt with cooldown", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await SessionMemory.ensure({ directory: tmp.path })
+        await Bun.write(
+          SessionMemory.workspace(tmp.path).heartbeat,
+          ["@every 1m", "@reply false", "- Check urgent TODOs"].join("\n"),
+        )
+
+        const session = await Session.create({ key: "main" })
+        const before = await Session.messages({ sessionID: session.id })
+
+        await SessionHeartbeat.run()
+        const one = await Session.messages({ sessionID: session.id })
+        await SessionHeartbeat.run()
+        const two = await Session.messages({ sessionID: session.id })
+
+        expect(before.length).toBe(0)
+        expect(one.length).toBe(1)
+        expect(two.length).toBe(1)
+        expect(one[0]?.info.role).toBe("user")
+        const text = one[0]?.parts.find((item) => item.type === "text")
+        expect(text?.text).toContain("[heartbeat]")
+        expect(text?.text).toContain("HEARTBEAT_OK")
+        expect(text?.text).toContain("Check urgent TODOs")
+      },
+    })
+  })
+
   test("only writes memory when new messages are present", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const session = await Session.create({ key: "ops" })
+        const session = await Session.create({ key: "main" })
         await push(session.id, tmp.path, "Please remember this is production", "Will do.")
         const one = await SessionHeartbeat.sync(session)
         const two = await SessionHeartbeat.sync(session)
