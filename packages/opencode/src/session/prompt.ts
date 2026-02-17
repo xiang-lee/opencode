@@ -45,6 +45,7 @@ import { AppFileSystem } from "@/filesystem"
 import { Truncate } from "@/tool/truncate"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
+import { SessionMemory } from "./memory"
 import { Cause, Effect, Exit, Layer, Option, Scope, ServiceMap } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
@@ -1302,6 +1303,26 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           yield* Effect.promise(() => SessionRevert.cleanup(session))
           const message = yield* createUserMessage(input)
           yield* sessions.touch(input.sessionID)
+          const msgs = yield* sessions.messages({ sessionID: input.sessionID, limit: 48 })
+          yield* Effect.promise(() =>
+            SessionMemory.update({
+              session: {
+                id: session.id,
+                key: session.key,
+                directory: session.directory,
+              },
+              messages: msgs,
+            }),
+          ).pipe(
+            Effect.catchAll((error) =>
+              Effect.sync(() => {
+                log.warn("prompt memory sync failed", {
+                  error,
+                  sessionID: input.sessionID,
+                })
+              }),
+            ),
+          )
 
           const permissions: Permission.Ruleset = []
           for (const [t, enabled] of Object.entries(input.tools ?? {})) {
@@ -1482,15 +1503,20 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
                 yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
-                const [skills, env, instructions, modelMsgs] = yield* Effect.promise(() =>
+                const [skills, env, instructions, modelMsgs, memory] = yield* Effect.promise(() =>
                   Promise.all([
                     SystemPrompt.skills(agent),
                     SystemPrompt.environment(model),
                     InstructionPrompt.system(),
                     MessageV2.toModelMessages(msgs, model),
+                    SessionMemory.system({
+                      id: session.id,
+                      key: session.key,
+                      directory: session.directory,
+                    }),
                   ]),
                 )
-                const system = [...env, ...(skills ? [skills] : []), ...instructions]
+                const system = [...env, ...(skills ? [skills] : []), ...instructions, ...memory]
                 const format = lastUser.format ?? { type: "text" as const }
                 if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
                 const result = yield* handle.process({

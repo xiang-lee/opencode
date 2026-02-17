@@ -67,6 +67,7 @@ export namespace Session {
     const revert = row.revert ?? undefined
     return {
       id: row.id,
+      key: row.session_key ?? undefined,
       slug: row.slug,
       projectID: row.project_id,
       workspaceID: row.workspace_id ?? undefined,
@@ -93,6 +94,7 @@ export namespace Session {
       project_id: info.projectID,
       workspace_id: info.workspaceID,
       parent_id: info.parentID,
+      session_key: info.key,
       slug: info.slug,
       directory: info.directory,
       title: info.title,
@@ -121,9 +123,17 @@ export namespace Session {
     return `${title} (fork #1)`
   }
 
+  export function normalizeKey(key?: string) {
+    if (!key) return
+    const value = key.trim().toLowerCase()
+    if (!value) return
+    return value
+  }
+
   export const Info = z
     .object({
       id: SessionID.zod,
+      key: z.string().optional(),
       slug: z.string(),
       projectID: ProjectID.zod,
       workspaceID: WorkspaceID.zod.optional(),
@@ -314,6 +324,7 @@ export namespace Session {
   export interface Interface {
     readonly create: (input?: {
       parentID?: SessionID
+      key?: string
       title?: string
       permission?: Permission.Ruleset
       workspaceID?: WorkspaceID
@@ -321,6 +332,7 @@ export namespace Session {
     readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info>
     readonly touch: (sessionID: SessionID) => Effect.Effect<void>
     readonly get: (id: SessionID) => Effect.Effect<Info>
+    readonly getByKey: (key: string) => Effect.Effect<Info>
     readonly share: (id: SessionID) => Effect.Effect<{ url: string }>
     readonly unshare: (id: SessionID) => Effect.Effect<void>
     readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
@@ -376,6 +388,7 @@ export namespace Session {
 
       const createNext = Effect.fn("Session.createNext")(function* (input: {
         id?: SessionID
+        key?: string
         title?: string
         parentID?: SessionID
         workspaceID?: WorkspaceID
@@ -384,6 +397,7 @@ export namespace Session {
       }) {
         const result: Info = {
           id: SessionID.descending(input.id),
+          key: normalizeKey(input.key),
           slug: Slug.create(),
           version: Installation.VERSION,
           projectID: Instance.project.id,
@@ -421,6 +435,21 @@ export namespace Session {
       const get = Effect.fn("Session.get")(function* (id: SessionID) {
         const row = yield* db((d) => d.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
         if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
+        return fromRow(row)
+      })
+
+      const getByKey = Effect.fn("Session.getByKey")(function* (key: string) {
+        const value = normalizeKey(key)
+        if (!value) throw new NotFoundError({ message: `Session not found for key: ${key}` })
+        const row = yield* db((d) =>
+          d
+            .select()
+            .from(SessionTable)
+            .where(and(eq(SessionTable.project_id, Instance.project.id), eq(SessionTable.session_key, value)))
+            .orderBy(desc(SessionTable.time_updated))
+            .get(),
+        )
+        if (!row) throw new NotFoundError({ message: `Session not found for key: ${key}` })
         return fromRow(row)
       })
 
@@ -492,17 +521,32 @@ export namespace Session {
 
       const create = Effect.fn("Session.create")(function* (input?: {
         parentID?: SessionID
+        key?: string
         title?: string
         permission?: Permission.Ruleset
         workspaceID?: WorkspaceID
       }) {
+        const key = normalizeKey(input?.key)
+        if (key) {
+          const existing = yield* getByKey(key).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+          if (existing) return existing
+        }
         return yield* createNext({
           parentID: input?.parentID,
+          key,
           directory: Instance.directory,
           title: input?.title,
           permission: input?.permission,
           workspaceID: input?.workspaceID,
-        })
+        }).pipe(
+          Effect.catchAll((error) => {
+            if (!key) return Effect.fail(error)
+            if (`${error}`.includes("UNIQUE constraint failed: session.project_id, session.session_key")) {
+              return getByKey(key)
+            }
+            return Effect.fail(error)
+          }),
+        )
       })
 
       const fork = Effect.fn("Session.fork")(function* (input: { sessionID: SessionID; messageID?: MessageID }) {
@@ -660,6 +704,7 @@ export namespace Session {
         fork,
         touch,
         get,
+        getByKey,
         share,
         unshare,
         setTitle,
@@ -690,6 +735,7 @@ export namespace Session {
     z
       .object({
         parentID: SessionID.zod.optional(),
+        key: z.string().optional(),
         title: z.string().optional(),
         permission: Info.shape.permission,
         workspaceID: WorkspaceID.zod.optional(),
@@ -704,6 +750,7 @@ export namespace Session {
 
   export const touch = fn(SessionID.zod, (id) => runPromise((svc) => svc.touch(id)))
   export const get = fn(SessionID.zod, (id) => runPromise((svc) => svc.get(id)))
+  export const getByKey = fn(z.string(), (key) => runPromise((svc) => svc.getByKey(key)))
   export const share = fn(SessionID.zod, (id) => runPromise((svc) => svc.share(id)))
   export const unshare = fn(SessionID.zod, (id) => runPromise((svc) => svc.unshare(id)))
 
@@ -739,6 +786,7 @@ export namespace Session {
 
   export function* list(input?: {
     directory?: string
+    key?: string
     workspaceID?: WorkspaceID
     roots?: boolean
     start?: number
@@ -753,6 +801,11 @@ export namespace Session {
     }
     if (input?.directory) {
       conditions.push(eq(SessionTable.directory, input.directory))
+    }
+    if (input?.key !== undefined) {
+      const key = normalizeKey(input.key)
+      if (!key) return
+      conditions.push(eq(SessionTable.session_key, key))
     }
     if (input?.roots) {
       conditions.push(isNull(SessionTable.parent_id))

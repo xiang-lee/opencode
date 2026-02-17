@@ -47,6 +47,7 @@ export const SessionRoutes = lazy(() =>
         "query",
         z.object({
           directory: z.string().optional().meta({ description: "Filter sessions by project directory" }),
+          key: z.string().optional().meta({ description: "Filter sessions by stable key (normalized)" }),
           roots: z.coerce.boolean().optional().meta({ description: "Only return root sessions (no parentID)" }),
           start: z.coerce
             .number()
@@ -61,6 +62,7 @@ export const SessionRoutes = lazy(() =>
         const sessions: Session.Info[] = []
         for await (const session of Session.list({
           directory: query.directory,
+          key: query.key,
           roots: query.roots,
           start: query.start,
           search: query.search,
@@ -69,6 +71,37 @@ export const SessionRoutes = lazy(() =>
           sessions.push(session)
         }
         return c.json(sessions)
+      },
+    )
+    .get(
+      "/key/:sessionKey",
+      describeRoute({
+        summary: "Get session by key",
+        description: "Retrieve the latest session for a stable session key in the current project.",
+        tags: ["Session"],
+        operationId: "session.get_by_key",
+        responses: {
+          200: {
+            description: "Get session by key",
+            content: {
+              "application/json": {
+                schema: resolver(Session.Info),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionKey: z.string().meta({ description: "Stable session key" }),
+        }),
+      ),
+      async (c) => {
+        const sessionKey = c.req.valid("param").sessionKey
+        const session = await Session.getByKey(sessionKey)
+        return c.json(session)
       },
     )
     .get(
