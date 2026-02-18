@@ -416,10 +416,6 @@ export namespace SessionCron {
     await SessionPrompt.prompt({
       sessionID: target.id,
       noReply: job.reply !== true,
-      model: {
-        providerID: "openai",
-        modelID: "gpt-5",
-      },
       parts: [
         {
           type: "text",
