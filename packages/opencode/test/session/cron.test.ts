@@ -62,7 +62,7 @@ describe("session cron", () => {
         expect(run.status).toBe("ok")
         expect(listed.length).toBe(0)
         expect(tail?.info.role).toBe("user")
-        expect(text).toContain("[cron:")
+        expect(text).toContain("[cron:Reminder]")
         expect(text).toContain("Please review deployment checklist")
       },
     })
