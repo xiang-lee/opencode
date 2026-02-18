@@ -412,7 +412,7 @@ export namespace SessionCron {
     const target = await resolve(job)
     if (!target) throw new Error(`session not found for cron job: ${job.id}`)
 
-    const text = `[cron:${job.id} ${job.name}] ${job.prompt}`
+    const text = `[cron:${job.name}] ${job.prompt}`
     await SessionPrompt.prompt({
       sessionID: target.id,
       noReply: job.reply !== true,
