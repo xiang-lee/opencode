@@ -227,12 +227,13 @@
 [data-component="reasoning-part"] {
   width: 100%;
   color: var(--text-base);
-  opacity: 0.8;
+  font-size: var(--font-size-small);
   line-height: var(--line-height-large);
 
   [data-component="markdown"] {
     margin-top: 24px;
     font-style: normal;
+    font-size: inherit;
 
     p:has(strong) {
       margin-top: 24px;
@@ -1287,8 +1288,6 @@
 }
 
 [data-component="apply-patch-file-diff"] {
-  border-top: 1px solid var(--border-weaker-base);
-  max-height: 420px;
   overflow-y: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
