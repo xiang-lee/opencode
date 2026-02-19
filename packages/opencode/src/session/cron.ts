@@ -412,17 +412,37 @@ export namespace SessionCron {
     const target = await resolve(job)
     if (!target) throw new Error(`session not found for cron job: ${job.id}`)
 
-    const text = `[cron:${job.name}] ${job.prompt}`
-    await SessionPrompt.prompt({
+    const interactive = job.reply === true
+    const messageID = interactive ? Identifier.ascending("message") : undefined
+    const text = interactive
+      ? [
+          `[cron:${job.name}]`,
+          "Execute this scheduled task now and return only the final result to the user.",
+          "Do not ask for confirmation.",
+          `Task: ${job.prompt}`,
+        ].join("\n")
+      : `[cron:${job.name}] ${job.prompt}`
+    const result = await SessionPrompt.prompt({
       sessionID: target.id,
-      noReply: job.reply !== true,
+      messageID,
+      noReply: !interactive,
       parts: [
         {
           type: "text",
           text,
+          synthetic: interactive,
         },
       ],
     })
+    if (interactive && result.info.role !== "assistant") {
+      throw new Error(`cron job did not produce an assistant reply: ${job.id}`)
+    }
+    if (interactive && messageID) {
+      await Session.removeMessage({
+        sessionID: target.id,
+        messageID,
+      })
+    }
   }
 
   export function init() {
