@@ -431,6 +431,7 @@ export namespace SessionCron {
           type: "text",
           text,
           synthetic: interactive,
+          ignored: interactive,
         },
       ],
     })
