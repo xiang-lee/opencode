@@ -81,6 +81,13 @@ function list<T>(value: T[] | undefined | null, fallback: T[]) {
   return fallback
 }
 
+function compareMessages(a: MessageType, b: MessageType) {
+  const at = a.time?.created ?? 0
+  const bt = b.time?.created ?? 0
+  if (at !== bt) return at - bt
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
+
 const hidden = new Set(["todowrite", "todoread"])
 
 function partState(part: PartType, showReasoningSummaries: boolean) {
@@ -158,7 +165,11 @@ export function SessionTurn(
   const emptyDiffs: FileDiff[] = []
   const idle = { type: "idle" as const }
 
-  const allMessages = createMemo(() => list(data.store.message?.[props.sessionID], emptyMessages))
+  const allMessages = createMemo(
+    () => list(data.store.message?.[props.sessionID], emptyMessages).slice().sort(compareMessages),
+    emptyMessages,
+    { equals: same },
+  )
 
   const messageIndex = createMemo(() => {
     const messages = allMessages() ?? emptyMessages

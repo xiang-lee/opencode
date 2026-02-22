@@ -40,6 +40,8 @@ import { QuestionRoutes } from "./routes/question"
 import { PermissionRoutes } from "./routes/permission"
 import { GlobalRoutes } from "./routes/global"
 import { MDNS } from "./mdns"
+import path from "path"
+import fs from "fs"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -49,6 +51,32 @@ export namespace Server {
 
   let _url: URL | undefined
   let _corsWhitelist: string[] = []
+
+  const webDistCandidates = [
+    path.resolve(process.cwd(), "packages/app/dist"),
+    path.resolve(process.cwd(), "../app/dist"),
+    path.resolve(process.cwd(), "../../app/dist"),
+  ]
+
+  const webDistRoot = webDistCandidates.find((root) => fs.existsSync(path.join(root, "index.html")))
+
+  async function serveLocalWebAsset(requestPath: string) {
+    if (!webDistRoot) return
+
+    const webDistIndex = path.join(webDistRoot, "index.html")
+    const normalized = requestPath === "/" ? "/index.html" : requestPath
+    const relative = normalized.replace(/^\/+/, "")
+    const candidate = path.normalize(path.join(webDistRoot, relative))
+
+    if (!candidate.startsWith(webDistRoot + path.sep) && candidate !== webDistIndex) return
+
+    const file = Bun.file(candidate)
+    if (await file.exists()) return file
+
+    const index = Bun.file(webDistIndex)
+    if (!(await index.exists())) return
+    return index
+  }
 
   export function url(): URL {
     return _url ?? new URL("http://localhost:4096")
@@ -541,9 +569,19 @@ export namespace Server {
           },
         )
         .all("/*", async (c) => {
-          const path = c.req.path
+          const requestPath = c.req.path
 
-          const response = await proxy(`https://app.opencode.ai${path}`, {
+          const localFile = await serveLocalWebAsset(requestPath)
+          if (localFile) {
+            const response = new Response(localFile)
+            response.headers.set(
+              "Content-Security-Policy",
+              "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:",
+            )
+            return response
+          }
+
+          const response = await proxy(`https://app.opencode.ai${requestPath}`, {
             ...c.req,
             headers: {
               ...c.req.raw.headers,

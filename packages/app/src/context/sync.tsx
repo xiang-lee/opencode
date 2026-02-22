@@ -224,7 +224,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             parts: input.parts,
           })
         },
-        async sync(sessionID: string) {
+        async sync(sessionID: string, options?: { refresh?: boolean }) {
           const directory = sdk.directory
           const client = sdk.client
           const [store, setStore] = globalSync.child(directory)
@@ -233,10 +233,10 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             const match = Binary.search(store.session, sessionID, (s) => s.id)
             return match.found
           })()
-
           const hasMessages = store.message[sessionID] !== undefined
           const hydrated = meta.limit[key] !== undefined
-          if (hasSession && hasMessages && hydrated) return
+          const refresh = options?.refresh === true
+          if (!refresh && hasSession && hasMessages && hydrated) return
 
           const count = store.message[sessionID]?.length ?? 0
           const limit = hydrated ? (meta.limit[key] ?? messagePageSize) : limitFor(count)
@@ -260,7 +260,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               })
 
           const messagesReq =
-            hasMessages && hydrated
+            hasMessages && hydrated && !refresh
               ? Promise.resolve()
               : loadMessages({
                   directory,
