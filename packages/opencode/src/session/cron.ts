@@ -4,6 +4,7 @@ import z from "zod"
 import { Instance } from "@/project/instance"
 import { Identifier } from "@/id/id"
 import { Scheduler } from "@/scheduler"
+import { Provider } from "@/provider/provider"
 import { fn } from "@/util/fn"
 import { Session } from "."
 import { SessionPrompt } from "./prompt"
@@ -422,18 +423,26 @@ export namespace SessionCron {
           `Task: ${job.prompt}`,
         ].join("\n")
       : `[cron:${job.name}] ${job.prompt}`
-    const result = await SessionPrompt.prompt({
-      sessionID: target.id,
-      messageID,
-      noReply: !interactive,
-      parts: [
-        {
-          type: "text",
-          text,
-          synthetic: interactive,
-          ignored: interactive,
-        },
-      ],
+    const send = (msgID?: string, model?: { providerID: string; modelID: string }) =>
+      SessionPrompt.prompt({
+        sessionID: target.id,
+        messageID: msgID,
+        model,
+        noReply: !interactive,
+        parts: [
+          {
+            type: "text",
+            text,
+            synthetic: interactive,
+            ignored: false,
+          },
+        ],
+      })
+
+    const result = await send(messageID).catch(async (error) => {
+      if (!Provider.ModelNotFoundError.isInstance(error)) throw error
+      const fallback = await Provider.defaultModel()
+      return send(interactive ? Identifier.ascending("message") : undefined, fallback)
     })
     if (interactive && result.info.role !== "assistant") {
       throw new Error(`cron job did not produce an assistant reply: ${job.id}`)
