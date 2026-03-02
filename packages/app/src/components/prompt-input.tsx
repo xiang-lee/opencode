@@ -23,7 +23,6 @@ import { Button } from "@opencode-ai/ui/button"
 import { DockShellForm, DockTray } from "@opencode-ai/ui/dock-surface"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
-import type { IconName } from "@opencode-ai/ui/icons/provider"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Select } from "@opencode-ai/ui/select"
@@ -244,6 +243,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     draggingType: "image" | "@mention" | null
     mode: "normal" | "shell"
     applyingHistory: boolean
+    pendingAutoAccept: boolean
   }>({
     popover: null,
     historyIndex: -1,
@@ -252,6 +252,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     draggingType: null,
     mode: "normal",
     applyingHistory: false,
+    pendingAutoAccept: false,
   })
 
   const commentCount = createMemo(() => {
@@ -299,6 +300,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       example: suggest() ? language.t(EXAMPLES[store.placeholder]) : "",
       suggest: suggest(),
       t: (key, params) => language.t(key as Parameters<typeof language.t>[0], params as never),
+    }),
+  )
+
+  createEffect(
+    on(sessionKey, () => {
+      setStore("pendingAutoAccept", false)
     }),
   )
 
@@ -592,7 +599,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     setActive: setSlashActive,
     onInput: slashOnInput,
     onKeyDown: slashOnKeyDown,
-    refetch: slashRefetch,
   } = useFilteredList<SlashCommand>({
     items: slashCommands,
     key: (x) => x?.id,
@@ -648,14 +654,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       editorRef.appendChild(document.createTextNode("\u200B"))
     }
   }
-
-  createEffect(
-    on(
-      () => sync.data.command,
-      () => slashRefetch(),
-      { defer: true },
-    ),
-  )
 
   // Auto-scroll active command into view when navigating with keyboard
   createEffect(() => {
@@ -957,10 +955,18 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     readClipboardImage: platform.readClipboardImage,
   })
 
+  const variants = createMemo(() => ["default", ...local.model.variant.list()])
+  const accepting = createMemo(() => {
+    const id = params.id
+    if (!id) return store.pendingAutoAccept
+    return permission.isAutoAccepting(id, sdk.directory)
+  })
+
   const { abort, handleSubmit } = createPromptSubmit({
     info,
     imageAttachments,
     commentCount,
+    autoAccept: () => accepting(),
     mode: () => store.mode,
     working,
     editor: () => editorRef,
@@ -1124,13 +1130,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       handleSubmit(event)
     }
   }
-
-  const variants = createMemo(() => ["default", ...local.model.variant.list()])
-  const accepting = createMemo(() => {
-    const id = params.id
-    if (!id) return false
-    return permission.isAutoAccepting(id, sdk.directory)
-  })
 
   return (
     <div class="relative size-full _max-h-[320px] flex flex-col gap-0">
@@ -1323,9 +1322,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 <Button
                   data-action="prompt-permissions"
                   variant="ghost"
-                  disabled={!params.id}
                   onClick={() => {
-                    if (!params.id) return
+                    if (!params.id) {
+                      setStore("pendingAutoAccept", (value) => !value)
+                      return
+                    }
                     permission.toggleAutoAccept(params.id, sdk.directory)
                   }}
                   classList={{
@@ -1398,7 +1399,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       >
                         <Show when={local.model.current()?.provider?.id}>
                           <ProviderIcon
-                            id={local.model.current()!.provider.id as IconName}
+                            id={local.model.current()!.provider.id}
                             class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
                             style={{ "will-change": "opacity", transform: "translateZ(0)" }}
                           />
@@ -1428,7 +1429,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     >
                       <Show when={local.model.current()?.provider?.id}>
                         <ProviderIcon
-                          id={local.model.current()!.provider.id as IconName}
+                          id={local.model.current()!.provider.id}
                           class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
                           style={{ "will-change": "opacity", transform: "translateZ(0)" }}
                         />

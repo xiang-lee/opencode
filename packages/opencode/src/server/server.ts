@@ -21,6 +21,7 @@ import { Auth } from "../auth"
 import { Flag } from "../flag/flag"
 import { Command } from "../command"
 import { Global } from "../global"
+import { WorkspaceContext } from "../control-plane/workspace-context"
 import { ProjectRoutes } from "./routes/project"
 import { SessionRoutes } from "./routes/session"
 import { PtyRoutes } from "./routes/pty"
@@ -222,7 +223,8 @@ export namespace Server {
         )
         .use(async (c, next) => {
           if (c.req.path === "/log") return next()
-          const raw = c.req.query("directory") || c.req.header("x-opencode-directory") || process.env.OPENCODE_DEFAULT_DIRECTORY || process.cwd()
+          const workspaceID = c.req.query("workspace") || c.req.header("x-opencode-workspace")
+          const raw = c.req.query("directory") || c.req.header("x-opencode-directory") || process.cwd()
           const directory = (() => {
             try {
               return decodeURIComponent(raw)
@@ -230,11 +232,17 @@ export namespace Server {
               return raw
             }
           })()
-          return Instance.provide({
-            directory,
-            init: InstanceBootstrap,
+
+          return WorkspaceContext.provide({
+            workspaceID,
             async fn() {
-              return next()
+              return Instance.provide({
+                directory,
+                init: InstanceBootstrap,
+                async fn() {
+                  return next()
+                },
+              })
             },
           })
         })
@@ -251,7 +259,15 @@ export namespace Server {
             },
           }),
         )
-        .use(validator("query", z.object({ directory: z.string().optional() })))
+        .use(
+          validator(
+            "query",
+            z.object({
+              directory: z.string().optional(),
+              workspace: z.string().optional(),
+            }),
+          ),
+        )
         .route("/project", ProjectRoutes())
         .route("/pty", PtyRoutes())
         .route("/config", ConfigRoutes())
