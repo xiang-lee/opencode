@@ -565,6 +565,7 @@ export namespace Session {
 
   export function* list(input?: {
     directory?: string
+    key?: string
     workspaceID?: string
     roots?: boolean
     start?: number
