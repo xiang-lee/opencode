@@ -1,4 +1,17 @@
-import { onCleanup, Show, Match, Switch, createMemo, createEffect, on, onMount, untrack } from "solid-js"
+import type { Project, UserMessage } from "@opencode-ai/sdk/v2"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import {
+  onCleanup,
+  Show,
+  Match,
+  Switch,
+  createMemo,
+  createEffect,
+  createComputed,
+  on,
+  onMount,
+  untrack,
+} from "solid-js"
 import { createMediaQuery } from "@solid-primitives/media"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { useLocal } from "@/context/local"
@@ -7,30 +20,30 @@ import { createStore } from "solid-js/store"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Select } from "@opencode-ai/ui/select"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
-import { Mark } from "@opencode-ai/ui/logo"
-
-import { useSync } from "@/context/sync"
-import { useLayout } from "@/context/layout"
-import { checksum, base64Encode } from "@opencode-ai/util/encode"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { useLanguage } from "@/context/language"
-import { useNavigate, useParams } from "@solidjs/router"
-import { UserMessage } from "@opencode-ai/sdk/v2"
-import { useSDK } from "@/context/sdk"
-import { usePrompt } from "@/context/prompt"
+import { Button } from "@opencode-ai/ui/button"
+import { showToast } from "@opencode-ai/ui/toast"
+import { base64Encode, checksum } from "@opencode-ai/util/encode"
+import { useNavigate, useParams, useSearchParams } from "@solidjs/router"
+import { NewSessionView, SessionHeader } from "@/components/session"
 import { useComments } from "@/context/comments"
-import { SessionHeader, NewSessionView } from "@/components/session"
-import { same } from "@/utils/same"
+import { useGlobalSync } from "@/context/global-sync"
+import { useLanguage } from "@/context/language"
+import { useLayout } from "@/context/layout"
+import { usePrompt } from "@/context/prompt"
+import { useSDK } from "@/context/sdk"
+import { useSync } from "@/context/sync"
+import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import { createOpenReviewFile } from "@/pages/session/helpers"
-import { createScrollSpy } from "@/pages/session/scroll-spy"
-import { SessionReviewTab, type DiffStyle, type SessionReviewTabProps } from "@/pages/session/review-tab"
-import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { MessageTimeline } from "@/pages/session/message-timeline"
-import { useSessionCommands } from "@/pages/session/use-session-commands"
-import { SessionComposerRegion, createSessionComposerState } from "@/pages/session/composer"
+import { type DiffStyle, SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
+import { createScrollSpy } from "@/pages/session/scroll-spy"
 import { SessionMobileTabs } from "@/pages/session/session-mobile-tabs"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
+import { TerminalPanel } from "@/pages/session/terminal-panel"
+import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
+import { same } from "@/utils/same"
+import { formatServerError } from "@/utils/server-errors"
 
 const emptyUserMessages: UserMessage[] = []
 
@@ -242,6 +255,7 @@ function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
 }
 
 export default function Page() {
+  const globalSync = useGlobalSync()
   const layout = useLayout()
   const local = useLocal()
   const file = useFile()
@@ -253,8 +267,22 @@ export default function Page() {
   const sdk = useSDK()
   const prompt = usePrompt()
   const comments = useComments()
+  const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string }>()
+
+  createEffect(() => {
+    if (!untrack(() => prompt.ready())) return
+    prompt.ready()
+    untrack(() => {
+      if (params.id || !prompt.ready()) return
+      const text = searchParams.prompt
+      if (!text) return
+      prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
+      setSearchParams({ ...searchParams, prompt: undefined })
+    })
+  })
 
   const [ui, setUi] = createStore({
+    git: false,
     pendingMessage: undefined as string | undefined,
     scrollGesture: 0,
     scroll: {
@@ -403,7 +431,10 @@ export default function Page() {
       () => {
         const msg = lastUserMessage()
         if (!msg) return
-        if (msg.agent) local.agent.set(msg.agent)
+        if (msg.agent) {
+          local.agent.set(msg.agent)
+          if (local.agent.current()?.model) return
+        }
         if (msg.model) local.model.set(msg.model)
       },
     ),
@@ -414,7 +445,19 @@ export default function Page() {
     mobileTab: "session" as "session" | "changes",
     changes: "session" as "session" | "turn",
     newSessionWorktree: "main",
+    deferRender: false,
   })
+
+  createComputed((prev) => {
+    const key = sessionKey()
+    if (key !== prev) {
+      setStore("deferRender", true)
+      requestAnimationFrame(() => {
+        setTimeout(() => setStore("deferRender", false), 0)
+      })
+    }
+    return key
+  }, sessionKey())
 
   const turnDiffs = createMemo(() => lastUserMessage()?.summary?.diffs ?? [])
   const reviewDiffs = createMemo(() => (store.changes === "session" ? diffs() : turnDiffs()))
@@ -465,6 +508,46 @@ export default function Page() {
     if (!project || project.vcs) return "session.review.empty"
     return "session.review.noVcs"
   })
+
+  function upsert(next: Project) {
+    const list = globalSync.data.project
+    sync.set("project", next.id)
+    const idx = list.findIndex((item) => item.id === next.id)
+    if (idx >= 0) {
+      globalSync.set(
+        "project",
+        list.map((item, i) => (i === idx ? { ...item, ...next } : item)),
+      )
+      return
+    }
+    const at = list.findIndex((item) => item.id > next.id)
+    if (at >= 0) {
+      globalSync.set("project", [...list.slice(0, at), next, ...list.slice(at)])
+      return
+    }
+    globalSync.set("project", [...list, next])
+  }
+
+  function initGit() {
+    if (ui.git) return
+    setUi("git", true)
+    void sdk.client.project
+      .initGit()
+      .then((x) => {
+        if (!x.data) return
+        upsert(x.data)
+      })
+      .catch((err) => {
+        showToast({
+          variant: "error",
+          title: language.t("common.requestFailed"),
+          description: formatServerError(err, language.t),
+        })
+      })
+      .finally(() => {
+        setUi("git", false)
+      })
+  }
 
   let inputRef!: HTMLDivElement
   let promptDock: HTMLDivElement | undefined
@@ -665,7 +748,11 @@ export default function Page() {
     on(
       sessionKey,
       () => {
-        setTree({ reviewScroll: undefined, pendingDiff: undefined, activeDiff: undefined })
+        setTree({
+          reviewScroll: undefined,
+          pendingDiff: undefined,
+          activeDiff: undefined,
+        })
       },
       { defer: true },
     ),
@@ -688,29 +775,35 @@ export default function Page() {
     showAllFiles,
     tabForPath: file.tab,
     openTab: tabs().open,
+    setActive: tabs().setActive,
     loadFile: file.load,
   })
 
   const changesOptions = ["session", "turn"] as const
   const changesOptionsList = [...changesOptions]
 
-  const changesTitle = () => (
-    <Select
-      options={changesOptionsList}
-      current={store.changes}
-      label={(option) =>
-        option === "session" ? language.t("ui.sessionReview.title") : language.t("ui.sessionReview.title.lastTurn")
-      }
-      onSelect={(option) => option && setStore("changes", option)}
-      variant="ghost"
-      size="small"
-      valueClass="text-14-medium"
-    />
-  )
+  const changesTitle = () => {
+    if (!hasReview()) {
+      return null
+    }
+
+    return (
+      <Select
+        options={changesOptionsList}
+        current={store.changes}
+        label={(option) =>
+          option === "session" ? language.t("ui.sessionReview.title") : language.t("ui.sessionReview.title.lastTurn")
+        }
+        onSelect={(option) => option && setStore("changes", option)}
+        variant="ghost"
+        size="small"
+        valueClass="text-14-medium"
+      />
+    )
+  }
 
   const emptyTurn = () => (
     <div class="h-full pb-30 flex flex-col items-center justify-center text-center gap-6">
-      <Mark class="w-14 opacity-10" />
       <div class="text-14-regular text-text-weak max-w-56">{language.t("session.review.noChanges")}</div>
     </div>
   )
@@ -722,35 +815,12 @@ export default function Page() {
     loadingClass: string
     emptyClass: string
   }) => (
-    <Switch>
-      <Match when={store.changes === "turn" && !!params.id}>
-        <SessionReviewTab
-          title={changesTitle()}
-          empty={emptyTurn()}
-          diffs={reviewDiffs}
-          view={view}
-          diffStyle={input.diffStyle}
-          onDiffStyleChange={input.onDiffStyleChange}
-          onScrollRef={(el) => setTree("reviewScroll", el)}
-          focusedFile={tree.activeDiff}
-          onLineComment={(comment) => addCommentToContext({ ...comment, origin: "review" })}
-          onLineCommentUpdate={updateCommentInContext}
-          onLineCommentDelete={removeCommentFromContext}
-          lineCommentActions={reviewCommentActions()}
-          comments={comments.all()}
-          focusedComment={comments.focus()}
-          onFocusedCommentChange={comments.setFocus}
-          onViewFile={openReviewFile}
-          classes={input.classes}
-        />
-      </Match>
-      <Match when={hasReview()}>
-        <Show
-          when={diffsReady()}
-          fallback={<div class={input.loadingClass}>{language.t("session.review.loadingChanges")}</div>}
-        >
+    <Show when={!store.deferRender}>
+      <Switch>
+        <Match when={store.changes === "turn" && !!params.id}>
           <SessionReviewTab
             title={changesTitle()}
+            empty={emptyTurn()}
             diffs={reviewDiffs}
             view={view}
             diffStyle={input.diffStyle}
@@ -767,39 +837,78 @@ export default function Page() {
             onViewFile={openReviewFile}
             classes={input.classes}
           />
-        </Show>
-      </Match>
-      <Match when={true}>
-        <SessionReviewTab
-          title={changesTitle()}
-          empty={
-            store.changes === "turn" ? (
-              emptyTurn()
-            ) : (
-              <div class={input.emptyClass}>
-                <Mark class="w-14 opacity-10" />
-                <div class="text-14-regular text-text-weak max-w-56">{language.t(reviewEmptyKey())}</div>
-              </div>
-            )
-          }
-          diffs={reviewDiffs}
-          view={view}
-          diffStyle={input.diffStyle}
-          onDiffStyleChange={input.onDiffStyleChange}
-          onScrollRef={(el) => setTree("reviewScroll", el)}
-          focusedFile={tree.activeDiff}
-          onLineComment={(comment) => addCommentToContext({ ...comment, origin: "review" })}
-          onLineCommentUpdate={updateCommentInContext}
-          onLineCommentDelete={removeCommentFromContext}
-          lineCommentActions={reviewCommentActions()}
-          comments={comments.all()}
-          focusedComment={comments.focus()}
-          onFocusedCommentChange={comments.setFocus}
-          onViewFile={openReviewFile}
-          classes={input.classes}
-        />
-      </Match>
-    </Switch>
+        </Match>
+        <Match when={hasReview()}>
+          <Show
+            when={diffsReady()}
+            fallback={<div class={input.loadingClass}>{language.t("session.review.loadingChanges")}</div>}
+          >
+            <SessionReviewTab
+              title={changesTitle()}
+              diffs={reviewDiffs}
+              view={view}
+              diffStyle={input.diffStyle}
+              onDiffStyleChange={input.onDiffStyleChange}
+              onScrollRef={(el) => setTree("reviewScroll", el)}
+              focusedFile={tree.activeDiff}
+              onLineComment={(comment) => addCommentToContext({ ...comment, origin: "review" })}
+              onLineCommentUpdate={updateCommentInContext}
+              onLineCommentDelete={removeCommentFromContext}
+              lineCommentActions={reviewCommentActions()}
+              comments={comments.all()}
+              focusedComment={comments.focus()}
+              onFocusedCommentChange={comments.setFocus}
+              onViewFile={openReviewFile}
+              classes={input.classes}
+            />
+          </Show>
+        </Match>
+        <Match when={true}>
+          <SessionReviewTab
+            title={changesTitle()}
+            empty={
+              store.changes === "turn" ? (
+                emptyTurn()
+              ) : reviewEmptyKey() === "session.review.noVcs" ? (
+                <div class={input.emptyClass}>
+                  <div class="flex flex-col gap-3">
+                    <div class="text-14-medium text-text-strong">Create a Git repository</div>
+                    <div
+                      class="text-14-regular text-text-base max-w-md"
+                      style={{ "line-height": "var(--line-height-normal)" }}
+                    >
+                      Track, review, and undo changes in this project
+                    </div>
+                  </div>
+                  <Button size="large" disabled={ui.git} onClick={initGit}>
+                    {ui.git ? "Creating Git repository..." : "Create Git repository"}
+                  </Button>
+                </div>
+              ) : (
+                <div class={input.emptyClass}>
+                  <div class="text-14-regular text-text-weak max-w-56">{language.t(reviewEmptyKey())}</div>
+                </div>
+              )
+            }
+            diffs={reviewDiffs}
+            view={view}
+            diffStyle={input.diffStyle}
+            onDiffStyleChange={input.onDiffStyleChange}
+            onScrollRef={(el) => setTree("reviewScroll", el)}
+            focusedFile={tree.activeDiff}
+            onLineComment={(comment) => addCommentToContext({ ...comment, origin: "review" })}
+            onLineCommentUpdate={updateCommentInContext}
+            onLineCommentDelete={removeCommentFromContext}
+            lineCommentActions={reviewCommentActions()}
+            comments={comments.all()}
+            focusedComment={comments.focus()}
+            onFocusedCommentChange={comments.setFocus}
+            onViewFile={openReviewFile}
+            classes={input.classes}
+          />
+        </Match>
+      </Switch>
+    </Show>
   )
 
   const reviewPanel = () => (
@@ -1101,7 +1210,9 @@ export default function Page() {
 
       const el = scroller
       const delta = next - dockHeight
-      const stick = el ? el.scrollHeight - el.clientHeight - el.scrollTop < 10 + Math.max(0, delta) : false
+      const stick = el
+        ? !autoScroll.userScrolled() || el.scrollHeight - el.clientHeight - el.scrollTop < 10 + Math.max(0, delta)
+        : false
 
       dockHeight = next
 
@@ -1236,6 +1347,7 @@ export default function Page() {
 
           <SessionComposerRegion
             state={composer}
+            ready={!store.deferRender && messagesReady()}
             centered={centered()}
             inputRef={(el) => {
               inputRef = el
