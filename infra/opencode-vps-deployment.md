@@ -63,12 +63,46 @@ These files are part of the working setup:
 - `packages/app/src/pages/session.tsx`
   - the session page periodically re-syncs while visible to recover from missed SSE updates over the SSH tunnel
 
-## How to update after pulling new code on the VPS
+## Scripts
 
-Run:
+Two helper scripts are checked into the repo:
+
+- `infra/scripts/update-vps-opencode.sh`
+  - pulls the target branch with `--ff-only`
+  - fixes `packages/app/dist` ownership back to `clawd`
+  - restarts `opencode.service`
+  - waits for the service to become healthy
+  - verifies that the homepage asset points to the local fork build
+- `infra/scripts/check-vps-web-build.sh`
+  - verifies that `server.ts` still contains local-web logic
+  - checks that the HTML asset name returned by `http://127.0.0.1:4096/` exists in local `packages/app/dist/assets`
+
+Recommended usage:
 
 ```bash
 cd /home/clawd/clawd/projects/opencode
+sudo ./infra/scripts/update-vps-opencode.sh
+```
+
+Validation only:
+
+```bash
+cd /home/clawd/clawd/projects/opencode
+./infra/scripts/check-vps-web-build.sh
+```
+
+## How to update after pulling new code on the VPS
+
+Run the helper script instead:
+
+```bash
+cd /home/clawd/clawd/projects/opencode
+sudo ./infra/scripts/update-vps-opencode.sh
+```
+
+If you really need the manual path:
+
+```bash
 git pull origin dev
 sudo systemctl daemon-reload
 sudo systemctl restart opencode.service
@@ -157,12 +191,12 @@ If the asset names do not match, restore the local-web changes in `server.ts` an
 
 When pulling upstream again:
 
-1. pull into the VPS repo
-2. inspect these files before restart:
+1. merge upstream into your fork branch first
+2. push the result to `origin/dev`
+3. on the VPS run `sudo ./infra/scripts/update-vps-opencode.sh`
+4. if the script fails, inspect these files first:
    - `packages/opencode/src/server/server.ts`
    - `packages/app/src/context/sync.tsx`
    - `packages/app/src/pages/session.tsx`
-3. restart the service
-4. verify the homepage asset name matches local `packages/app/dist/assets`
 
 If upstream changes those same files, expect conflicts or behavior changes. Treat those three files as the browser-critical surface area for this VPS deployment.
