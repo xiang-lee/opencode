@@ -589,13 +589,16 @@ export default function Page() {
   function initGit() {
     if (ui.git) return
     setUi("git", true)
-    void sdk.client.project
+    const projectClient = sdk.client.project as unknown as {
+      initGit: () => Promise<{ data?: Project }>
+    }
+    void projectClient
       .initGit()
-      .then((x) => {
+      .then((x: { data?: Project }) => {
         if (!x.data) return
         upsert(x.data)
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         showToast({
           variant: "error",
           title: language.t("common.requestFailed"),
