@@ -94,5 +94,20 @@ if ! systemctl is-active --quiet "$SERVICE_NAME"; then
   exit 1
 fi
 
+ready=0
+for _ in $(seq 1 30); do
+  if "$REPO_DIR/$CHECK_SCRIPT_REL" >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
+  sleep 1
+done
+
+if [[ $ready -ne 1 ]]; then
+  echo "error: service started but Web UI validation did not pass in time" >&2
+  "$REPO_DIR/$CHECK_SCRIPT_REL"
+  exit 1
+fi
+
 "$REPO_DIR/$CHECK_SCRIPT_REL"
 run_as_user "cd '$REPO_DIR' && printf 'Current commit: '; git rev-parse --short HEAD"
