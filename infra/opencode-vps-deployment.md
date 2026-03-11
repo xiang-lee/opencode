@@ -65,23 +65,25 @@ These files are part of the working setup:
 
 ## Scripts
 
-Two helper scripts are checked into the repo:
+Scripts checked into the repo:
 
-- `infra/scripts/update-vps-opencode.sh`
-  - pulls the target branch with `--ff-only`
-  - fixes `packages/app/dist` ownership back to `clawd`
-  - restarts `opencode.service`
-  - waits for the service to become healthy
-  - verifies that the homepage asset points to the local fork build
 - `infra/scripts/check-vps-web-build.sh`
   - verifies that `server.ts` still contains local-web logic
   - checks that the HTML asset name returned by `http://127.0.0.1:4096/` exists in local `packages/app/dist/assets`
+- `infra/scripts/update-vps-opencode.sh`
+  - manual human-oriented update script kept in the repo
+- `infra/scripts/opencode-vps-update-wrapper.sh`
+  - source-of-truth template for the privileged VPS update wrapper
+- `infra/scripts/install-vps-update-wrapper.sh`
+  - installs the root-owned wrapper and sudoers rule on a VPS
+- `infra/scripts/run-vps-update.sh`
+  - repo-local command that calls the installed root wrapper
 
-Recommended usage for a human on the VPS:
+Recommended human usage on the VPS:
 
 ```bash
 cd /home/clawd/clawd/projects/opencode
-sudo ./infra/scripts/update-vps-opencode.sh
+./infra/scripts/run-vps-update.sh
 ```
 
 Validation only:
@@ -93,44 +95,52 @@ cd /home/clawd/clawd/projects/opencode
 
 ## Autonomous update path for opencode itself
 
-A separate root-owned wrapper is installed on the VPS:
+The portable setup is now:
 
-- `/usr/local/sbin/opencode-vps-update`
+1. repo contains the wrapper template and installer
+2. each VPS installs the wrapper once from the repo
+3. opencode can then run the repo-local command
 
-And `clawd` is allowed to run only that command via sudo without a password:
-
-- `/etc/sudoers.d/opencode-vps-update`
-
-That means opencode running as `clawd` can safely execute:
+One-time install on a new VPS:
 
 ```bash
-sudo /usr/local/sbin/opencode-vps-update
+cd /home/clawd/clawd/projects/opencode
+sudo ./infra/scripts/install-vps-update-wrapper.sh
 ```
 
-Why this is safer than sudoing the repo script directly:
+After that, opencode running as `clawd` can safely execute this repo command:
+
+```bash
+cd /home/clawd/clawd/projects/opencode
+./infra/scripts/run-vps-update.sh
+```
+
+Why this is safer than sudoing a repo script directly:
 
 - the repo is writable by `clawd`
-- `/usr/local/sbin/opencode-vps-update` is root-owned and not writable by `clawd`
-- so opencode gets one narrow privileged entrypoint instead of root access over a user-writable script
+- the installed `/usr/local/sbin/opencode-vps-update` is root-owned and not writable by `clawd`
+- `./infra/scripts/run-vps-update.sh` only forwards to that fixed privileged wrapper
+- so opencode gets one narrow privileged entrypoint instead of root over a user-writable script
 
 For a no-pull restart-and-check run:
 
 ```bash
-sudo /usr/local/sbin/opencode-vps-update --skip-pull
+cd /home/clawd/clawd/projects/opencode
+./infra/scripts/run-vps-update.sh --skip-pull
 ```
 
 ## How to update after pulling new code on the VPS
 
 Run one of these instead:
 
-Manual human path:
+Portable repo path:
 
 ```bash
 cd /home/clawd/clawd/projects/opencode
-sudo ./infra/scripts/update-vps-opencode.sh
+./infra/scripts/run-vps-update.sh
 ```
 
-Autonomous opencode path:
+Direct installed wrapper path:
 
 ```bash
 sudo /usr/local/sbin/opencode-vps-update
