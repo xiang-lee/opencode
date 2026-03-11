@@ -76,14 +76,13 @@ Scripts checked into the repo:
   - source-of-truth template for the privileged VPS update wrapper
 - `infra/scripts/install-vps-update-wrapper.sh`
   - installs the root-owned wrapper and sudoers rule on a VPS
-- `infra/scripts/run-vps-update.sh`
-  - repo-local command that calls the installed root wrapper
-
+- `infra/scripts/merge-upstream-dev.sh`
+  - fetches `origin/dev` and `upstream/dev`, merges upstream into your local `dev`, pushes to `origin/dev`, then deploys through the fixed wrapper
 Recommended human usage on the VPS:
 
 ```bash
 cd /home/clawd/clawd/projects/opencode
-./infra/scripts/run-vps-update.sh
+sudo ./infra/scripts/update-vps-opencode.sh
 ```
 
 Validation only:
@@ -108,36 +107,67 @@ cd /home/clawd/clawd/projects/opencode
 sudo ./infra/scripts/install-vps-update-wrapper.sh
 ```
 
-After that, opencode running as `clawd` can safely execute this repo command:
+After that, opencode running as `clawd` can safely execute upstream-merge and deployment flows that end by calling the fixed root wrapper.
+
+Primary repo command for autonomous upstream sync:
 
 ```bash
 cd /home/clawd/clawd/projects/opencode
-./infra/scripts/run-vps-update.sh
+./infra/scripts/merge-upstream-dev.sh
 ```
 
 Why this is safer than sudoing a repo script directly:
 
 - the repo is writable by `clawd`
 - the installed `/usr/local/sbin/opencode-vps-update` is root-owned and not writable by `clawd`
-- `./infra/scripts/run-vps-update.sh` only forwards to that fixed privileged wrapper
+- `./infra/scripts/merge-upstream-dev.sh` keeps all Git logic in the repo, but final privileged deployment still goes through the fixed wrapper
 - so opencode gets one narrow privileged entrypoint instead of root over a user-writable script
 
 For a no-pull restart-and-check run:
 
 ```bash
 cd /home/clawd/clawd/projects/opencode
-./infra/scripts/run-vps-update.sh --skip-pull
+sudo /usr/local/sbin/opencode-vps-update --skip-pull
 ```
+
+## Upstream merge workflow
+
+To merge the latest official changes into your fork branch and then deploy safely:
+
+```bash
+cd /home/clawd/clawd/projects/opencode
+./infra/scripts/merge-upstream-dev.sh
+```
+
+What it does:
+
+1. refuses to run if the repo is dirty
+2. checks out `dev` if needed
+3. fetches `origin/dev` and `upstream/dev`
+4. fast-forwards local `dev` to `origin/dev`
+5. verifies the Mac Web UI source fixes are still present
+6. merges `upstream/dev` into local `dev`
+7. verifies the critical fixes again after the merge
+8. pushes the merged result to `origin/dev`
+9. deploys with `/usr/local/sbin/opencode-vps-update --skip-pull`
+
+Useful flags:
+
+- `--dry-run`: fetch and report what would happen, without merging
+- `--no-deploy`: merge and push, but do not restart the service
+- `--skip-push`: merge locally but do not push to `origin`
+
+If upstream removes one of the known Mac Web UI fixes, the script fails before deployment so the old working server stays in place.
 
 ## How to update after pulling new code on the VPS
 
 Run one of these instead:
 
-Portable repo path:
+Autonomous upstream merge path:
 
 ```bash
 cd /home/clawd/clawd/projects/opencode
-./infra/scripts/run-vps-update.sh
+./infra/scripts/merge-upstream-dev.sh
 ```
 
 Direct installed wrapper path:
