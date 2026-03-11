@@ -286,12 +286,16 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const [store, setStore] = globalSync.child(directory)
           const key = keyFor(directory, sessionID)
           const hasSession = Binary.search(store.session, sessionID, (s) => s.id).found
+          const hasMessages = store.message[sessionID] !== undefined
+          const hydrated = meta.limit[key] !== undefined
+          const refresh = options?.refresh === true
 
           touch(directory, setStore, sessionID)
 
-          if (store.message[sessionID] !== undefined && hasSession && meta.limit[key] !== undefined) return
+          if (!refresh && hasSession && hasMessages && hydrated) return
 
-          const limit = meta.limit[key] ?? messagePageSize
+          const count = store.message[sessionID]?.length ?? 0
+          const limit = hydrated ? (meta.limit[key] ?? messagePageSize) : Math.max(count, messagePageSize)
 
           const sessionReq = hasSession
             ? Promise.resolve()
@@ -312,13 +316,16 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                 )
               })
 
-          const messagesReq = loadMessages({
-            directory,
-            client,
-            setStore,
-            sessionID,
-            limit,
-          })
+          const messagesReq =
+            hasMessages && hydrated && !refresh
+              ? Promise.resolve()
+              : loadMessages({
+                  directory,
+                  client,
+                  setStore,
+                  sessionID,
+                  limit,
+                })
 
           return runInflight(inflight, key, () => Promise.all([sessionReq, messagesReq]).then(() => {}))
         },

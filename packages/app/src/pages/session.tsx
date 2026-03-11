@@ -640,6 +640,20 @@ export default function Page() {
     }),
   )
 
+  createEffect(() => {
+    sdk.directory
+    const id = params.id
+    if (!id) return
+
+    const timer = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return
+      void sync.session.sync(id, { refresh: true })
+      void sync.session.todo(id)
+    }, 6000)
+
+    onCleanup(() => clearInterval(timer))
+  })
+
   createEffect(
     on(
       () => visibleUserMessages().at(-1)?.id,
