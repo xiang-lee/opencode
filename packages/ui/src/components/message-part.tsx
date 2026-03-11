@@ -31,15 +31,15 @@ import {
 import { useData } from "../context"
 import { useFileComponent } from "../context/file"
 import { useDialog } from "../context/dialog"
-import { useI18n } from "../context/i18n"
-import { BasicTool } from "./basic-tool"
-import { GenericTool } from "./basic-tool"
+import { type UiI18n, useI18n } from "../context/i18n"
+import { BasicTool, GenericTool } from "./basic-tool"
 import { Accordion } from "./accordion"
 import { StickyAccordionHeader } from "./sticky-accordion-header"
 import { Card } from "./card"
 import { Collapsible } from "./collapsible"
 import { FileIcon } from "./file-icon"
 import { Icon } from "./icon"
+import { ToolErrorCard } from "./tool-error-card"
 import { Checkbox } from "./checkbox"
 import { DiffChanges } from "./diff-changes"
 import { Markdown } from "./markdown"
@@ -210,6 +210,11 @@ export type ToolInfo = {
   subtitle?: string
 }
 
+function agentTitle(i18n: UiI18n, type?: string) {
+  if (!type) return i18n.t("ui.tool.agent.default")
+  return i18n.t("ui.tool.agent", { type })
+}
+
 export function getToolInfo(tool: string, input: any = {}): ToolInfo {
   const i18n = useI18n()
   switch (tool) {
@@ -255,12 +260,17 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
         title: i18n.t("ui.tool.codesearch"),
         subtitle: input.query,
       }
-    case "task":
+    case "task": {
+      const type =
+        typeof input.subagent_type === "string" && input.subagent_type
+          ? input.subagent_type[0]!.toUpperCase() + input.subagent_type.slice(1)
+          : undefined
       return {
         icon: "task",
-        title: i18n.t("ui.tool.agent", { type: input.subagent_type || "task" }),
+        title: agentTitle(i18n, type),
         subtitle: input.description,
       }
+    }
     case "bash":
       return {
         icon: "console",
@@ -427,8 +437,8 @@ function groupParts(parts: { messageID: string; part: PartType }[]) {
   return result
 }
 
-function partByID(parts: readonly PartType[], partID: string) {
-  return parts.find((part) => part.id === partID)
+function index<T extends { id: string }>(items: readonly T[]) {
+  return new Map(items.map((item) => [item.id, item] as const))
 }
 
 function renderable(part: PartType, showReasoningSummaries = true) {
@@ -464,6 +474,13 @@ export function AssistantParts(props: {
   const data = useData()
   const emptyParts: PartType[] = []
   const emptyTools: ToolPart[] = []
+  const msgs = createMemo(() => index(props.messages))
+  const part = createMemo(
+    () =>
+      new Map(
+        props.messages.map((message) => [message.id, index(list(data.store.part?.[message.id], emptyParts))] as const),
+      ),
+  )
 
   const grouped = createMemo(
     () =>
@@ -497,7 +514,7 @@ export function AssistantParts(props: {
                     const entry = entryAccessor()
                     if (entry.type !== "context") return emptyTools
                     return entry.refs
-                      .map((ref) => partByID(list(data.store.part?.[ref.messageID], emptyParts), ref.partID))
+                      .map((ref) => part().get(ref.messageID)?.get(ref.partID))
                       .filter((part): part is ToolPart => !!part && isContextGroupTool(part))
                   },
                   emptyTools,
@@ -517,23 +534,23 @@ export function AssistantParts(props: {
                 const message = createMemo(() => {
                   const entry = entryAccessor()
                   if (entry.type !== "part") return
-                  return props.messages.find((item) => item.id === entry.ref.messageID)
+                  return msgs().get(entry.ref.messageID)
                 })
-                const part = createMemo(() => {
+                const item = createMemo(() => {
                   const entry = entryAccessor()
                   if (entry.type !== "part") return
-                  return partByID(list(data.store.part?.[entry.ref.messageID], emptyParts), entry.ref.partID)
+                  return part().get(entry.ref.messageID)?.get(entry.ref.partID)
                 })
 
                 return (
                   <Show when={message()}>
-                    <Show when={part()}>
+                    <Show when={item()}>
                       <Part
-                        part={part()!}
+                        part={item()!}
                         message={message()!}
                         showAssistantCopyPartID={props.showAssistantCopyPartID}
                         turnDurationMs={props.turnDurationMs}
-                        defaultOpen={partDefaultOpen(part()!, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
+                        defaultOpen={partDefaultOpen(item()!, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
                       />
                     </Show>
                   </Show>
@@ -685,6 +702,7 @@ export function AssistantMessageDisplay(props: {
   showReasoningSummaries?: boolean
 }) {
   const emptyTools: ToolPart[] = []
+  const part = createMemo(() => index(props.parts))
   const grouped = createMemo(
     () =>
       groupParts(
@@ -713,7 +731,7 @@ export function AssistantMessageDisplay(props: {
                     const entry = entryAccessor()
                     if (entry.type !== "context") return emptyTools
                     return entry.refs
-                      .map((ref) => partByID(props.parts, ref.partID))
+                      .map((ref) => part().get(ref.partID))
                       .filter((part): part is ToolPart => !!part && isContextGroupTool(part))
                   },
                   emptyTools,
@@ -729,16 +747,16 @@ export function AssistantMessageDisplay(props: {
             </Match>
             <Match when={entryType() === "part"}>
               {(() => {
-                const part = createMemo(() => {
+                const item = createMemo(() => {
                   const entry = entryAccessor()
                   if (entry.type !== "part") return
-                  return partByID(props.parts, entry.ref.partID)
+                  return part().get(entry.ref.partID)
                 })
 
                 return (
-                  <Show when={part()}>
+                  <Show when={item()}>
                     <Part
-                      part={part()!}
+                      part={item()!}
                       message={props.message}
                       showAssistantCopyPartID={props.showAssistantCopyPartID}
                     />
@@ -1180,25 +1198,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
                   </div>
                 )
               }
-              const [title, ...rest] = cleaned.split(": ")
-              return (
-                <Card variant="error">
-                  <div data-component="tool-error">
-                    <Icon name="circle-ban-sign" size="small" />
-                    <Switch>
-                      <Match when={title && title.length < 30}>
-                        <div data-slot="message-part-tool-error-content">
-                          <div data-slot="message-part-tool-error-title">{title}</div>
-                          <span data-slot="message-part-tool-error-message">{rest.join(": ")}</span>
-                        </div>
-                      </Match>
-                      <Match when={true}>
-                        <span data-slot="message-part-tool-error-message">{cleaned}</span>
-                      </Match>
-                    </Switch>
-                  </div>
-                </Card>
-              )
+              return <ToolErrorCard tool={part().tool} error={error()} defaultOpen={props.defaultOpen} />
             }}
           </Match>
           <Match when={true}>
@@ -1569,7 +1569,12 @@ ToolRegistry.register({
     const i18n = useI18n()
     const location = useLocation()
     const childSessionId = () => props.metadata.sessionId as string | undefined
-    const title = createMemo(() => i18n.t("ui.tool.agent", { type: props.input.subagent_type || props.tool }))
+    const type = createMemo(() => {
+      const raw = props.input.subagent_type
+      if (typeof raw !== "string" || !raw) return undefined
+      return raw[0]!.toUpperCase() + raw.slice(1)
+    })
+    const title = createMemo(() => agentTitle(i18n, type()))
     const description = createMemo(() => {
       const value = props.input.description
       if (typeof value === "string") return value
