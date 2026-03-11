@@ -77,7 +77,7 @@ Two helper scripts are checked into the repo:
   - verifies that `server.ts` still contains local-web logic
   - checks that the HTML asset name returned by `http://127.0.0.1:4096/` exists in local `packages/app/dist/assets`
 
-Recommended usage:
+Recommended usage for a human on the VPS:
 
 ```bash
 cd /home/clawd/clawd/projects/opencode
@@ -91,13 +91,49 @@ cd /home/clawd/clawd/projects/opencode
 ./infra/scripts/check-vps-web-build.sh
 ```
 
+## Autonomous update path for opencode itself
+
+A separate root-owned wrapper is installed on the VPS:
+
+- `/usr/local/sbin/opencode-vps-update`
+
+And `clawd` is allowed to run only that command via sudo without a password:
+
+- `/etc/sudoers.d/opencode-vps-update`
+
+That means opencode running as `clawd` can safely execute:
+
+```bash
+sudo /usr/local/sbin/opencode-vps-update
+```
+
+Why this is safer than sudoing the repo script directly:
+
+- the repo is writable by `clawd`
+- `/usr/local/sbin/opencode-vps-update` is root-owned and not writable by `clawd`
+- so opencode gets one narrow privileged entrypoint instead of root access over a user-writable script
+
+For a no-pull restart-and-check run:
+
+```bash
+sudo /usr/local/sbin/opencode-vps-update --skip-pull
+```
+
 ## How to update after pulling new code on the VPS
 
-Run the helper script instead:
+Run one of these instead:
+
+Manual human path:
 
 ```bash
 cd /home/clawd/clawd/projects/opencode
 sudo ./infra/scripts/update-vps-opencode.sh
+```
+
+Autonomous opencode path:
+
+```bash
+sudo /usr/local/sbin/opencode-vps-update
 ```
 
 If you really need the manual path:
