@@ -3,13 +3,14 @@ import { Identifier } from "../../src/id/id"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import type { MessageV2 } from "../../src/session/message-v2"
+import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionMemory } from "../../src/session/memory"
 import { SessionPrompt } from "../../src/session/prompt"
 import { tmpdir } from "../fixture/fixture"
 
-async function push(sessionID: string, dir: string, user: string, assistant: string) {
+async function push(sessionID: SessionID, dir: string, user: string, assistant: string) {
   const msg = await Session.updateMessage({
-    id: Identifier.ascending("message"),
+    id: MessageID.ascending(Identifier.ascending("message")),
     role: "user",
     sessionID,
     agent: "default",
@@ -23,7 +24,7 @@ async function push(sessionID: string, dir: string, user: string, assistant: str
   })
 
   await Session.updatePart({
-    id: Identifier.ascending("part"),
+    id: PartID.ascending(Identifier.ascending("part")),
     messageID: msg.id,
     sessionID,
     type: "text",
@@ -31,7 +32,7 @@ async function push(sessionID: string, dir: string, user: string, assistant: str
   })
 
   const answer: MessageV2.Assistant = {
-    id: Identifier.ascending("message"),
+    id: MessageID.ascending(Identifier.ascending("message")),
     role: "assistant",
     sessionID,
     mode: "default",
@@ -57,7 +58,7 @@ async function push(sessionID: string, dir: string, user: string, assistant: str
   }
   await Session.updateMessage(answer)
   await Session.updatePart({
-    id: Identifier.ascending("part"),
+    id: PartID.ascending(Identifier.ascending("part")),
     messageID: answer.id,
     sessionID,
     type: "text",

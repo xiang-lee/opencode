@@ -7,7 +7,6 @@ import z from "zod"
 import { type ProviderMetadata } from "ai"
 import { Config } from "../config/config"
 import { Flag } from "../flag/flag"
-import { Identifier } from "../id/id"
 import { Installation } from "../installation"
 
 import { Database, NotFoundError, eq, and, or, gte, isNull, desc, like, inArray, lt } from "../storage/db"
@@ -23,6 +22,9 @@ import { fn } from "@/util/fn"
 import { Command } from "../command"
 import { Snapshot } from "@/snapshot"
 import { WorkspaceContext } from "../control-plane/workspace-context"
+import { ProjectID } from "../project/schema"
+import { WorkspaceID } from "../control-plane/schema"
+import { SessionID, MessageID, PartID } from "./schema"
 
 import type { Provider } from "@/provider/provider"
 import { PermissionNext } from "@/permission/next"
@@ -62,6 +64,7 @@ export namespace Session {
     const revert = row.revert ?? undefined
     return {
       id: row.id,
+      key: row.session_key ?? undefined,
       slug: row.slug,
       projectID: row.project_id,
       workspaceID: row.workspace_id ?? undefined,
@@ -85,6 +88,7 @@ export namespace Session {
   export function toRow(info: Info) {
     return {
       id: info.id,
+      session_key: info.key,
       project_id: info.projectID,
       workspace_id: info.workspaceID,
       parent_id: info.parentID,
@@ -118,12 +122,13 @@ export namespace Session {
 
   export const Info = z
     .object({
-      id: Identifier.schema("session"),
+      id: SessionID.zod,
+      key: z.string().optional(),
       slug: z.string(),
-      projectID: z.string(),
-      workspaceID: z.string().optional(),
+      projectID: ProjectID.zod,
+      workspaceID: WorkspaceID.zod.optional(),
       directory: z.string(),
-      parentID: Identifier.schema("session").optional(),
+      parentID: SessionID.zod.optional(),
       summary: z
         .object({
           additions: z.number(),
@@ -148,8 +153,8 @@ export namespace Session {
       permission: PermissionNext.Ruleset.optional(),
       revert: z
         .object({
-          messageID: z.string(),
-          partID: z.string().optional(),
+          messageID: MessageID.zod,
+          partID: PartID.zod.optional(),
           snapshot: z.string().optional(),
           diff: z.string().optional(),
         })
@@ -162,7 +167,7 @@ export namespace Session {
 
   export const ProjectInfo = z
     .object({
-      id: z.string(),
+      id: ProjectID.zod,
       name: z.string().optional(),
       worktree: z.string(),
     })
@@ -200,14 +205,14 @@ export namespace Session {
     Diff: BusEvent.define(
       "session.diff",
       z.object({
-        sessionID: z.string(),
+        sessionID: SessionID.zod,
         diff: Snapshot.FileDiff.array(),
       }),
     ),
     Error: BusEvent.define(
       "session.error",
       z.object({
-        sessionID: z.string().optional(),
+        sessionID: SessionID.zod.optional(),
         error: MessageV2.Assistant.shape.error,
       }),
     ),
@@ -216,27 +221,40 @@ export namespace Session {
   export const create = fn(
     z
       .object({
-        parentID: Identifier.schema("session").optional(),
+        parentID: SessionID.zod.optional(),
+        key: z.string().optional(),
         title: z.string().optional(),
         permission: Info.shape.permission,
-        workspaceID: Identifier.schema("workspace").optional(),
+        workspaceID: WorkspaceID.zod.optional(),
       })
       .optional(),
     async (input) => {
+      const key = normalizeKey(input?.key)
+      if (key) {
+        const existing = await getByKey(key).catch(() => undefined)
+        if (existing) return existing
+      }
       return createNext({
         parentID: input?.parentID,
+        key,
         directory: Instance.directory,
         title: input?.title,
         permission: input?.permission,
         workspaceID: input?.workspaceID,
+      }).catch((error) => {
+        if (!key) throw error
+        if (`${error}`.includes("UNIQUE constraint failed: session.project_id, session.session_key")) {
+          return getByKey(key)
+        }
+        throw error
       })
     },
   )
 
   export const fork = fn(
     z.object({
-      sessionID: Identifier.schema("session"),
-      messageID: Identifier.schema("message").optional(),
+      sessionID: SessionID.zod,
+      messageID: MessageID.zod.optional(),
     }),
     async (input) => {
       const original = await get(input.sessionID)
@@ -248,11 +266,11 @@ export namespace Session {
         title,
       })
       const msgs = await messages({ sessionID: input.sessionID })
-      const idMap = new Map<string, string>()
+      const idMap = new Map<string, MessageID>()
 
       for (const msg of msgs) {
         if (input.messageID && msg.info.id >= input.messageID) break
-        const newID = Identifier.ascending("message")
+        const newID = MessageID.ascending()
         idMap.set(msg.info.id, newID)
 
         const parentID = msg.info.role === "assistant" && msg.info.parentID ? idMap.get(msg.info.parentID) : undefined
@@ -266,7 +284,7 @@ export namespace Session {
         for (const part of msg.parts) {
           await updatePart({
             ...part,
-            id: Identifier.ascending("part"),
+            id: PartID.ascending(),
             messageID: cloned.id,
             sessionID: session.id,
           })
@@ -276,7 +294,7 @@ export namespace Session {
     },
   )
 
-  export const touch = fn(Identifier.schema("session"), async (sessionID) => {
+  export const touch = fn(SessionID.zod, async (sessionID) => {
     const now = Date.now()
     Database.use((db) => {
       const row = db
@@ -292,15 +310,17 @@ export namespace Session {
   })
 
   export async function createNext(input: {
-    id?: string
+    id?: SessionID
+    key?: string
     title?: string
-    parentID?: string
-    workspaceID?: string
+    parentID?: SessionID
+    workspaceID?: WorkspaceID
     directory: string
     permission?: PermissionNext.Ruleset
   }) {
     const result: Info = {
-      id: Identifier.descending("session", input.id),
+      id: SessionID.descending(input.id),
+      key: normalizeKey(input.key),
       slug: Slug.create(),
       version: Installation.VERSION,
       projectID: Instance.project.id,
@@ -341,13 +361,28 @@ export namespace Session {
     return path.join(base, [input.time.created, input.slug].join("-") + ".md")
   }
 
-  export const get = fn(Identifier.schema("session"), async (id) => {
+  export const get = fn(SessionID.zod, async (id) => {
     const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
     if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
     return fromRow(row)
   })
 
-  export const share = fn(Identifier.schema("session"), async (id) => {
+  export const getByKey = fn(z.string(), async (key) => {
+    const value = normalizeKey(key)
+    if (!value) throw new NotFoundError({ message: `Session not found for key: ${key}` })
+    const row = Database.use((db) =>
+      db
+        .select()
+        .from(SessionTable)
+        .where(and(eq(SessionTable.project_id, Instance.project.id), eq(SessionTable.session_key, value)))
+        .orderBy(desc(SessionTable.time_updated))
+        .get(),
+    )
+    if (!row) throw new NotFoundError({ message: `Session not found for key: ${key}` })
+    return fromRow(row)
+  })
+
+  export const share = fn(SessionID.zod, async (id) => {
     const cfg = await Config.get()
     if (cfg.share === "disabled") {
       throw new Error("Sharing is disabled in configuration")
@@ -363,7 +398,7 @@ export namespace Session {
     return share
   })
 
-  export const unshare = fn(Identifier.schema("session"), async (id) => {
+  export const unshare = fn(SessionID.zod, async (id) => {
     // Use ShareNext to remove the share (same as share function uses ShareNext to create)
     const { ShareNext } = await import("@/share/share-next")
     await ShareNext.remove(id)
@@ -377,7 +412,7 @@ export namespace Session {
 
   export const setTitle = fn(
     z.object({
-      sessionID: Identifier.schema("session"),
+      sessionID: SessionID.zod,
       title: z.string(),
     }),
     async (input) => {
@@ -398,7 +433,7 @@ export namespace Session {
 
   export const setArchived = fn(
     z.object({
-      sessionID: Identifier.schema("session"),
+      sessionID: SessionID.zod,
       time: z.number().optional(),
     }),
     async (input) => {
@@ -419,7 +454,7 @@ export namespace Session {
 
   export const setPermission = fn(
     z.object({
-      sessionID: Identifier.schema("session"),
+      sessionID: SessionID.zod,
       permission: PermissionNext.Ruleset,
     }),
     async (input) => {
@@ -440,7 +475,7 @@ export namespace Session {
 
   export const setRevert = fn(
     z.object({
-      sessionID: Identifier.schema("session"),
+      sessionID: SessionID.zod,
       revert: Info.shape.revert,
       summary: Info.shape.summary,
     }),
@@ -466,7 +501,7 @@ export namespace Session {
     },
   )
 
-  export const clearRevert = fn(Identifier.schema("session"), async (sessionID) => {
+  export const clearRevert = fn(SessionID.zod, async (sessionID) => {
     return Database.use((db) => {
       const row = db
         .update(SessionTable)
@@ -486,7 +521,7 @@ export namespace Session {
 
   export const setSummary = fn(
     z.object({
-      sessionID: Identifier.schema("session"),
+      sessionID: SessionID.zod,
       summary: Info.shape.summary,
     }),
     async (input) => {
@@ -510,7 +545,7 @@ export namespace Session {
     },
   )
 
-  export const diff = fn(Identifier.schema("session"), async (sessionID) => {
+  export const diff = fn(SessionID.zod, async (sessionID) => {
     try {
       return await Storage.read<Snapshot.FileDiff[]>(["session_diff", sessionID])
     } catch {
@@ -520,7 +555,7 @@ export namespace Session {
 
   export const messages = fn(
     z.object({
-      sessionID: Identifier.schema("session"),
+      sessionID: SessionID.zod,
       limit: z.number().optional(),
     }),
     async (input) => {
@@ -536,7 +571,8 @@ export namespace Session {
 
   export function* list(input?: {
     directory?: string
-    workspaceID?: string
+    key?: string
+    workspaceID?: WorkspaceID
     roots?: boolean
     start?: number
     search?: string
@@ -550,6 +586,11 @@ export namespace Session {
     }
     if (input?.directory) {
       conditions.push(eq(SessionTable.directory, input.directory))
+    }
+    if (input?.key !== undefined) {
+      const key = normalizeKey(input.key)
+      if (!key) return
+      conditions.push(eq(SessionTable.session_key, key))
     }
     if (input?.roots) {
       conditions.push(isNull(SessionTable.parent_id))
@@ -646,7 +687,7 @@ export namespace Session {
     }
   }
 
-  export const children = fn(Identifier.schema("session"), async (parentID) => {
+  export const children = fn(SessionID.zod, async (parentID) => {
     const project = Instance.project
     const rows = Database.use((db) =>
       db
@@ -658,7 +699,7 @@ export namespace Session {
     return rows.map(fromRow)
   })
 
-  export const remove = fn(Identifier.schema("session"), async (sessionID) => {
+  export const remove = fn(SessionID.zod, async (sessionID) => {
     const project = Instance.project
     try {
       const session = await get(sessionID)
@@ -679,6 +720,13 @@ export namespace Session {
       log.error(e)
     }
   })
+
+  export function normalizeKey(key?: string) {
+    if (!key) return
+    const value = key.trim().toLowerCase()
+    if (!value) return
+    return value
+  }
 
   export const updateMessage = fn(MessageV2.Info, async (msg) => {
     const time_created = msg.time.created
@@ -704,8 +752,8 @@ export namespace Session {
 
   export const removeMessage = fn(
     z.object({
-      sessionID: Identifier.schema("session"),
-      messageID: Identifier.schema("message"),
+      sessionID: SessionID.zod,
+      messageID: MessageID.zod,
     }),
     async (input) => {
       // CASCADE delete handles parts automatically
@@ -726,9 +774,9 @@ export namespace Session {
 
   export const removePart = fn(
     z.object({
-      sessionID: Identifier.schema("session"),
-      messageID: Identifier.schema("message"),
-      partID: Identifier.schema("part"),
+      sessionID: SessionID.zod,
+      messageID: MessageID.zod,
+      partID: PartID.zod,
     }),
     async (input) => {
       Database.use((db) => {
@@ -774,9 +822,9 @@ export namespace Session {
 
   export const updatePartDelta = fn(
     z.object({
-      sessionID: z.string(),
-      messageID: z.string(),
-      partID: z.string(),
+      sessionID: SessionID.zod,
+      messageID: MessageID.zod,
+      partID: PartID.zod,
       field: z.string(),
       delta: z.string(),
     }),
@@ -872,10 +920,10 @@ export namespace Session {
 
   export const initialize = fn(
     z.object({
-      sessionID: Identifier.schema("session"),
+      sessionID: SessionID.zod,
       modelID: z.string(),
       providerID: z.string(),
-      messageID: Identifier.schema("message"),
+      messageID: MessageID.zod,
     }),
     async (input) => {
       await SessionPrompt.command({

@@ -5,6 +5,7 @@ import { Instance } from "@/project/instance"
 import { Identifier } from "@/id/id"
 import { Scheduler } from "@/scheduler"
 import { Provider } from "@/provider/provider"
+import { MessageID, SessionID } from "@/session/schema"
 import { fn } from "@/util/fn"
 import { Session } from "."
 import { SessionPrompt } from "./prompt"
@@ -214,7 +215,7 @@ export namespace SessionCron {
     enabled: z.boolean(),
     reply: z.boolean().optional(),
     deleteAfterRun: z.boolean().optional(),
-    sessionID: Identifier.schema("session").optional(),
+    sessionID: SessionID.zod.optional(),
     sessionKey: z.string().optional(),
     state: z.object({
       nextRunAt: z.number().optional(),
@@ -242,7 +243,7 @@ export namespace SessionCron {
     enabled: z.boolean().optional(),
     reply: z.boolean().optional(),
     deleteAfterRun: z.boolean().optional(),
-    sessionID: Identifier.schema("session").optional(),
+    sessionID: SessionID.zod.optional(),
     sessionKey: z.string().optional(),
   })
 
@@ -253,7 +254,7 @@ export namespace SessionCron {
     enabled: z.boolean().optional(),
     reply: z.boolean().optional(),
     deleteAfterRun: z.boolean().optional(),
-    sessionID: Identifier.schema("session").nullable().optional(),
+    sessionID: SessionID.zod.nullable().optional(),
     sessionKey: z.string().nullable().optional(),
   })
 
@@ -414,7 +415,7 @@ export namespace SessionCron {
     if (!target) throw new Error(`session not found for cron job: ${job.id}`)
 
     const interactive = job.reply === true
-    const messageID = interactive ? Identifier.ascending("message") : undefined
+    const messageID = interactive ? MessageID.ascending() : undefined
     const text = interactive
       ? [
           `[cron:${job.name}]`,
@@ -423,7 +424,7 @@ export namespace SessionCron {
           `Task: ${job.prompt}`,
         ].join("\n")
       : `[cron:${job.name}] ${job.prompt}`
-    const send = (msgID?: string, model?: { providerID: string; modelID: string }) =>
+    const send = (msgID?: MessageID, model?: { providerID: string; modelID: string }) =>
       SessionPrompt.prompt({
         sessionID: target.id,
         messageID: msgID,
@@ -442,7 +443,7 @@ export namespace SessionCron {
     const result = await send(messageID).catch(async (error) => {
       if (!Provider.ModelNotFoundError.isInstance(error)) throw error
       const fallback = await Provider.defaultModel()
-      return send(interactive ? Identifier.ascending("message") : undefined, fallback)
+        return send(interactive ? MessageID.ascending() : undefined, fallback)
     })
     if (interactive && result.info.role !== "assistant") {
       throw new Error(`cron job did not produce an assistant reply: ${job.id}`)
