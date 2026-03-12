@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import z from "zod"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { MessageID } from "../../src/session/schema"
@@ -6,6 +7,17 @@ import { CronTool } from "../../src/tool/cron"
 import { tmpdir } from "../fixture/fixture"
 
 describe("tool.cron", () => {
+  test("parameters are JSON schema compatible", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = await CronTool.init()
+        expect(() => z.toJSONSchema(tool.parameters)).not.toThrow()
+      },
+    })
+  })
+
   test("supports add, run, and runs actions end-to-end", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

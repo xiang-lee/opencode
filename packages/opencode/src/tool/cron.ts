@@ -3,15 +3,39 @@ import { Tool } from "./tool"
 import { SessionCron } from "@/session/cron"
 import { Identifier } from "@/id/id"
 import { Session } from "@/session"
+import { SessionID } from "@/session/schema"
 
 const actions = ["status", "list", "add", "update", "remove", "run", "runs"] as const
+const sessionIDInput = z.string().startsWith("ses")
+
+const createJobInput = z.object({
+  name: z.string().min(1),
+  prompt: z.string().min(1),
+  schedule: SessionCron.Schedule,
+  enabled: z.boolean().optional(),
+  reply: z.boolean().optional(),
+  deleteAfterRun: z.boolean().optional(),
+  sessionID: sessionIDInput.optional(),
+  sessionKey: z.string().optional(),
+})
+
+const patchJobInput = z.object({
+  name: z.string().min(1).optional(),
+  prompt: z.string().min(1).optional(),
+  schedule: SessionCron.Schedule.optional(),
+  enabled: z.boolean().optional(),
+  reply: z.boolean().optional(),
+  deleteAfterRun: z.boolean().optional(),
+  sessionID: sessionIDInput.nullable().optional(),
+  sessionKey: z.string().nullable().optional(),
+})
 
 const params = z.object({
   action: z.enum(actions),
   includeDisabled: z.boolean().optional(),
-  job: SessionCron.CreateInput.optional(),
+  job: createJobInput.optional(),
   jobId: Identifier.schema("cron").optional(),
-  patch: SessionCron.PatchInput.optional(),
+  patch: patchJobInput.optional(),
   mode: z.enum(["due", "force"]).optional(),
   limit: z.number().int().min(1).max(5000).optional(),
 })
@@ -37,6 +61,11 @@ Job execution:
 - reply=true: append the scheduled message and immediately run the assistant turn
 
 By default, add uses the current session as the target.`
+
+function toSessionID(value: string | null | undefined) {
+  if (value == null) return value
+  return SessionID.make(value)
+}
 
 export const CronTool = Tool.define("cron", {
   description,
@@ -74,7 +103,7 @@ export const CronTool = Tool.define("cron", {
       const current = await Session.get(ctx.sessionID)
       const job = await SessionCron.add({
         ...input.job,
-        sessionID: input.job.sessionID ?? current.id,
+        sessionID: toSessionID(input.job.sessionID) ?? current.id,
         sessionKey: input.job.sessionKey ?? current.key,
       })
       return reply(`cron ${job.name}`, { job }, JSON.stringify(job, null, 2))
@@ -85,7 +114,10 @@ export const CronTool = Tool.define("cron", {
       if (!input.patch) throw new Error("patch is required for action=update")
       const job = await SessionCron.update({
         id: input.jobId,
-        patch: input.patch,
+        patch: {
+          ...input.patch,
+          sessionID: toSessionID(input.patch.sessionID),
+        },
       })
       return reply(`cron ${job.name}`, { job }, JSON.stringify(job, null, 2))
     }
