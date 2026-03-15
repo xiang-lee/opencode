@@ -5,6 +5,7 @@ import { Instance } from "@/project/instance"
 import { Identifier } from "@/id/id"
 import { Scheduler } from "@/scheduler"
 import { Provider } from "@/provider/provider"
+import { ModelID, ProviderID } from "@/provider/schema"
 import { MessageID, SessionID } from "@/session/schema"
 import { fn } from "@/util/fn"
 import { Session } from "."
@@ -424,7 +425,7 @@ export namespace SessionCron {
           `Task: ${job.prompt}`,
         ].join("\n")
       : `[cron:${job.name}] ${job.prompt}`
-    const send = (msgID?: MessageID, model?: { providerID: string; modelID: string }) =>
+    const send = (msgID?: MessageID, model?: { providerID: ProviderID; modelID: ModelID }) =>
       SessionPrompt.prompt({
         sessionID: target.id,
         messageID: msgID,

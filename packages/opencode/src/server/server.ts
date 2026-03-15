@@ -23,6 +23,7 @@ import { Command } from "../command"
 import { Global } from "../global"
 import { WorkspaceContext } from "../control-plane/workspace-context"
 import { WorkspaceID } from "../control-plane/schema"
+import { ProviderID } from "../provider/schema"
 import { WorkspaceRouterMiddleware } from "../control-plane/workspace-router-middleware"
 import { ProjectRoutes } from "./routes/project"
 import { SessionRoutes } from "./routes/session"
@@ -81,6 +82,11 @@ export namespace Server {
 
   export const Default = lazy(() => createApp({}))
 
+  function isLocalBypassHost(value?: string | null) {
+    if (!value) return false
+    return /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(value.trim())
+  }
+
   export const createApp = (opts: { cors?: string[] }): Hono => {
     const app = new Hono()
     return app
@@ -106,6 +112,7 @@ export namespace Server {
         // Allow CORS preflight requests to succeed without auth.
         // Browser clients sending Authorization headers will preflight with OPTIONS.
         if (c.req.method === "OPTIONS") return next()
+        if (isLocalBypassHost(c.req.header("host"))) return next()
         const password = Flag.OPENCODE_SERVER_PASSWORD
         if (!password) return next()
         const username = Flag.OPENCODE_SERVER_USERNAME ?? "opencode"
@@ -176,7 +183,7 @@ export namespace Server {
         validator(
           "param",
           z.object({
-            providerID: z.string(),
+            providerID: ProviderID.zod,
           }),
         ),
         validator("json", Auth.Info),
@@ -208,7 +215,7 @@ export namespace Server {
         validator(
           "param",
           z.object({
-            providerID: z.string(),
+            providerID: ProviderID.zod,
           }),
         ),
         async (c) => {

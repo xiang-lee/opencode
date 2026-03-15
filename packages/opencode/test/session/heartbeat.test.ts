@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Identifier } from "../../src/id/id"
 import { Instance } from "../../src/project/instance"
+import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
@@ -15,8 +16,8 @@ async function push(sessionID: SessionID, dir: string, user: string, assistant: 
     sessionID,
     agent: "default",
     model: {
-      providerID: "openai",
-      modelID: "gpt-4",
+      providerID: ProviderID.openai,
+      modelID: ModelID.make("gpt-4"),
     },
     time: {
       created: Date.now(),
@@ -47,8 +48,8 @@ async function push(sessionID: SessionID, dir: string, user: string, assistant: 
       reasoning: 0,
       cache: { read: 0, write: 0 },
     },
-    modelID: "gpt-4",
-    providerID: "openai",
+    modelID: ModelID.make("gpt-4"),
+    providerID: ProviderID.openai,
     parentID: msg.id,
     time: {
       created: Date.now(),
