@@ -715,7 +715,7 @@ export default function Page() {
   const hasScrollGesture = () => Date.now() - ui.scrollGesture < scrollGestureWindowMs
 
   createEffect(
-    on([() => sdk.directory, () => params.id] as const, ([, id]) => {
+    on([() => sdk.directory, () => params.id] as const, ([dir, id]) => {
       if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame)
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
       refreshFrame = undefined
@@ -744,6 +744,21 @@ export default function Page() {
           })
         }, 0)
       })
+    }),
+  )
+
+  createEffect(
+    on([() => sdk.directory, () => params.id] as const, ([dir, id]) => {
+      if (!id) return
+      const interval = window.setInterval(() => {
+        if (document.visibilityState !== "visible") return
+        if (sdk.directory !== dir || params.id !== id) return
+        untrack(() => {
+          void sync.session.sync(id, { force: true })
+        })
+      }, 6_000)
+
+      onCleanup(() => window.clearInterval(interval))
     }),
   )
 

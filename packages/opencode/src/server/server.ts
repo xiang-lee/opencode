@@ -34,6 +34,11 @@ export namespace Server {
     return false
   }
 
+  const isLocalBypassHost = (value?: string | null) => {
+    if (!value) return false
+    return /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(value.trim())
+  }
+
   export const Default = lazy(() => ControlPlaneRoutes())
 
   export const ControlPlaneRoutes = (opts?: { cors?: string[] }): Hono => {
@@ -44,6 +49,7 @@ export namespace Server {
         // Allow CORS preflight requests to succeed without auth.
         // Browser clients sending Authorization headers will preflight with OPTIONS.
         if (c.req.method === "OPTIONS") return next()
+        if (isLocalBypassHost(c.req.header("host"))) return next()
         const password = Flag.OPENCODE_SERVER_PASSWORD
         if (!password) return next()
         const username = Flag.OPENCODE_SERVER_USERNAME ?? "opencode"
