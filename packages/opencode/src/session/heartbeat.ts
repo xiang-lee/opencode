@@ -1,5 +1,4 @@
 import { Log } from "@/util/log"
-import { Scheduler } from "@/scheduler"
 import { Session } from "."
 import { SessionMemory } from "./memory"
 import { Instance } from "@/project/instance"
@@ -26,7 +25,10 @@ export namespace SessionHeartbeat {
       seen: new Map<string, string>(),
       plan: "",
       next: 0,
+      timer: undefined as ReturnType<typeof setInterval> | undefined,
     }
+  }, async (state) => {
+    if (state.timer) clearInterval(state.timer)
   })
 
   function ms(input: string) {
@@ -150,12 +152,15 @@ export namespace SessionHeartbeat {
   }
 
   export function init() {
-    Scheduler.register({
-      id: "session.memory.heartbeat",
-      interval: minute,
-      run,
-      scope: "instance",
-    })
+    const current = state()
+    if (current.timer) return
+    const directory = Instance.directory
+    current.timer = setInterval(() => {
+      void Instance.provide({
+        directory,
+        fn: run,
+      })
+    }, minute)
   }
 
   export async function run() {

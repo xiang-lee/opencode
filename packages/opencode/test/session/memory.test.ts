@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test"
-import { Identifier } from "../../src/id/id"
 import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
@@ -11,12 +10,12 @@ import { tmpdir } from "../fixture/fixture"
 
 async function push(sessionID: SessionID, dir: string, user: string, assistant: string) {
   const msg = await Session.updateMessage({
-    id: MessageID.ascending(Identifier.ascending("message")),
+    id: MessageID.ascending(),
     role: "user",
     sessionID,
     agent: "default",
     model: {
-      providerID: ProviderID.openai,
+      providerID: ProviderID.make("openai"),
       modelID: ModelID.make("gpt-4"),
     },
     time: {
@@ -25,7 +24,7 @@ async function push(sessionID: SessionID, dir: string, user: string, assistant: 
   })
 
   await Session.updatePart({
-    id: PartID.ascending(Identifier.ascending("part")),
+    id: PartID.ascending(),
     messageID: msg.id,
     sessionID,
     type: "text",
@@ -33,7 +32,7 @@ async function push(sessionID: SessionID, dir: string, user: string, assistant: 
   })
 
   const answer: MessageV2.Assistant = {
-    id: MessageID.ascending(Identifier.ascending("message")),
+    id: MessageID.ascending(),
     role: "assistant",
     sessionID,
     mode: "default",
@@ -50,7 +49,7 @@ async function push(sessionID: SessionID, dir: string, user: string, assistant: 
       cache: { read: 0, write: 0 },
     },
     modelID: ModelID.make("gpt-4"),
-    providerID: ProviderID.openai,
+    providerID: ProviderID.make("openai"),
     parentID: msg.id,
     time: {
       created: Date.now(),
@@ -59,7 +58,7 @@ async function push(sessionID: SessionID, dir: string, user: string, assistant: 
   }
   await Session.updateMessage(answer)
   await Session.updatePart({
-    id: PartID.ascending(Identifier.ascending("part")),
+    id: PartID.ascending(),
     messageID: answer.id,
     sessionID,
     type: "text",

@@ -178,7 +178,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       return globalSync.child(directory)
     }
     const absolute = (path: string) => (current()[0].path.directory + "/" + path).replace("//", "/")
-    const messagePageSize = 200
+    const initialMessagePageSize = 80
+    const historyMessagePageSize = 200
     const inflight = new Map<string, Promise<void>>()
     const inflightDiff = new Map<string, Promise<void>>()
     const inflightTodo = new Map<string, Promise<void>>()
@@ -336,7 +337,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           batch(() => {
             input.setStore("message", input.sessionID, reconcile(message, { key: "id" }))
             for (const p of next.part) {
-              input.setStore("part", p.id, p.part)
+              if (p.part.length) input.setStore("part", p.id, p.part)
             }
             setMeta("limit", key, message.length)
             setMeta("cursor", key, next.cursor)
@@ -461,7 +462,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             const force = opts?.force || opts?.refresh === true
             if (cached && hasSession && !force) return
 
-            const limit = meta.limit[key] ?? messagePageSize
+            const limit = meta.limit[key] ?? initialMessagePageSize
             const sessionReq =
               hasSession && !force
                 ? Promise.resolve()
@@ -558,7 +559,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             const [, setStore] = globalSync.child(directory)
             touch(directory, setStore, sessionID)
             const key = keyFor(directory, sessionID)
-            const step = count ?? messagePageSize
+            const step = count ?? historyMessagePageSize
             if (meta.loading[key]) return
             if (meta.complete[key]) return
             const before = meta.cursor[key]

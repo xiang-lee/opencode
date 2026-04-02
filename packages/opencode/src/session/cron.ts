@@ -3,7 +3,6 @@ import path from "path"
 import z from "zod"
 import { Instance } from "@/project/instance"
 import { Identifier } from "@/id/id"
-import { Scheduler } from "@/scheduler"
 import { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { MessageID, SessionID } from "@/session/schema"
@@ -216,7 +215,7 @@ export namespace SessionCron {
     enabled: z.boolean(),
     reply: z.boolean().optional(),
     deleteAfterRun: z.boolean().optional(),
-    sessionID: SessionID.zod.optional(),
+    sessionID: Identifier.schema("session").optional(),
     sessionKey: z.string().optional(),
     state: z.object({
       nextRunAt: z.number().optional(),
@@ -244,7 +243,7 @@ export namespace SessionCron {
     enabled: z.boolean().optional(),
     reply: z.boolean().optional(),
     deleteAfterRun: z.boolean().optional(),
-    sessionID: SessionID.zod.optional(),
+    sessionID: Identifier.schema("session").optional(),
     sessionKey: z.string().optional(),
   })
 
@@ -255,7 +254,7 @@ export namespace SessionCron {
     enabled: z.boolean().optional(),
     reply: z.boolean().optional(),
     deleteAfterRun: z.boolean().optional(),
-    sessionID: SessionID.zod.nullable().optional(),
+    sessionID: Identifier.schema("session").nullable().optional(),
     sessionKey: z.string().nullable().optional(),
   })
 
@@ -296,7 +295,10 @@ export namespace SessionCron {
       jobs: [] as Job[],
       queue: Promise.resolve(),
       running: new Set<string>(),
+      timer: undefined as ReturnType<typeof setInterval> | undefined,
     }
+  }, async (state) => {
+    if (state.timer) clearInterval(state.timer)
   })
 
   function filepath() {
@@ -408,7 +410,7 @@ export namespace SessionCron {
       if (byKey) return byKey
     }
     if (!job.sessionID) return
-    return Session.get(job.sessionID).catch(() => undefined)
+    return Session.get(SessionID.make(job.sessionID)).catch(() => undefined)
   }
 
   async function enqueue(job: Job) {
@@ -444,7 +446,7 @@ export namespace SessionCron {
     const result = await send(messageID).catch(async (error) => {
       if (!Provider.ModelNotFoundError.isInstance(error)) throw error
       const fallback = await Provider.defaultModel()
-        return send(interactive ? MessageID.ascending() : undefined, fallback)
+      return send(interactive ? MessageID.ascending() : undefined, fallback)
     })
     if (interactive && result.info.role !== "assistant") {
       throw new Error(`cron job did not produce an assistant reply: ${job.id}`)
@@ -458,14 +460,15 @@ export namespace SessionCron {
   }
 
   export function init() {
-    Scheduler.register({
-      id: "session.cron.tick",
-      interval: tick,
-      run: async () => {
-        await runDue()
-      },
-      scope: "instance",
-    })
+    const current = state()
+    if (current.timer) return
+    const directory = Instance.directory
+    current.timer = setInterval(() => {
+      void Instance.provide({
+        directory,
+        fn: runDue,
+      })
+    }, tick)
   }
 
   export const status = fn(z.object({}).optional(), async () => {

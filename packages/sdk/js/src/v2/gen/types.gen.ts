@@ -54,6 +54,46 @@ export type EventServerInstanceDisposed = {
   }
 }
 
+export type EventServerConnected = {
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventLspClientDiagnostics = {
+  type: "lsp.client.diagnostics"
+  properties: {
+    serverID: string
+    path: string
+  }
+}
+
+export type EventLspUpdated = {
+  type: "lsp.updated"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventMessagePartDelta = {
+  type: "message.part.delta"
+  properties: {
+    sessionID: string
+    messageID: string
+    partID: string
+    field: string
+    delta: string
+  }
+}
+
 export type PermissionRequest = {
   id: string
   sessionID: string
@@ -80,6 +120,35 @@ export type EventPermissionReplied = {
     sessionID: string
     requestID: string
     reply: "once" | "always" | "reject"
+  }
+}
+
+export type SessionStatus =
+  | {
+      type: "idle"
+    }
+  | {
+      type: "retry"
+      attempt: number
+      message: string
+      next: number
+    }
+  | {
+      type: "busy"
+    }
+
+export type EventSessionStatus = {
+  type: "session.status"
+  properties: {
+    sessionID: string
+    status: SessionStatus
+  }
+}
+
+export type EventSessionIdle = {
+  type: "session.idle"
+  properties: {
+    sessionID: string
   }
 }
 
@@ -154,32 +223,10 @@ export type EventQuestionRejected = {
   }
 }
 
-export type EventServerConnected = {
-  type: "server.connected"
+export type EventSessionCompacted = {
+  type: "session.compacted"
   properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventLspClientDiagnostics = {
-  type: "lsp.client.diagnostics"
-  properties: {
-    serverID: string
-    path: string
-  }
-}
-
-export type EventLspUpdated = {
-  type: "lsp.updated"
-  properties: {
-    [key: string]: unknown
+    sessionID: string
   }
 }
 
@@ -190,21 +237,115 @@ export type EventFileEdited = {
   }
 }
 
-export type OutputFormatText = {
-  type: "text"
+export type EventFileWatcherUpdated = {
+  type: "file.watcher.updated"
+  properties: {
+    file: string
+    event: "add" | "change" | "unlink"
+  }
 }
 
-export type JsonSchema = {
-  [key: string]: unknown
+export type Todo = {
+  /**
+   * Brief description of the task
+   */
+  content: string
+  /**
+   * Current status of the task: pending, in_progress, completed, cancelled
+   */
+  status: string
+  /**
+   * Priority level of the task: high, medium, low
+   */
+  priority: string
 }
 
-export type OutputFormatJsonSchema = {
-  type: "json_schema"
-  schema: JsonSchema
-  retryCount?: number
+export type EventTodoUpdated = {
+  type: "todo.updated"
+  properties: {
+    sessionID: string
+    todos: Array<Todo>
+  }
 }
 
-export type OutputFormat = OutputFormatText | OutputFormatJsonSchema
+export type EventTuiPromptAppend = {
+  type: "tui.prompt.append"
+  properties: {
+    text: string
+  }
+}
+
+export type EventTuiCommandExecute = {
+  type: "tui.command.execute"
+  properties: {
+    command:
+      | "session.list"
+      | "session.new"
+      | "session.share"
+      | "session.interrupt"
+      | "session.compact"
+      | "session.page.up"
+      | "session.page.down"
+      | "session.line.up"
+      | "session.line.down"
+      | "session.half.page.up"
+      | "session.half.page.down"
+      | "session.first"
+      | "session.last"
+      | "prompt.clear"
+      | "prompt.submit"
+      | "agent.cycle"
+      | string
+  }
+}
+
+export type EventTuiToastShow = {
+  type: "tui.toast.show"
+  properties: {
+    title?: string
+    message: string
+    variant: "info" | "success" | "warning" | "error"
+    /**
+     * Duration in milliseconds
+     */
+    duration?: number
+  }
+}
+
+export type EventTuiSessionSelect = {
+  type: "tui.session.select"
+  properties: {
+    /**
+     * Session ID to navigate to
+     */
+    sessionID: string
+  }
+}
+
+export type EventMcpToolsChanged = {
+  type: "mcp.tools.changed"
+  properties: {
+    server: string
+  }
+}
+
+export type EventMcpBrowserOpenFailed = {
+  type: "mcp.browser.open.failed"
+  properties: {
+    mcpName: string
+    url: string
+  }
+}
+
+export type EventCommandExecuted = {
+  type: "command.executed"
+  properties: {
+    name: string
+    sessionID: string
+    arguments: string
+    messageID: string
+  }
+}
 
 export type FileDiff = {
   file: string
@@ -215,29 +356,12 @@ export type FileDiff = {
   status?: "added" | "deleted" | "modified"
 }
 
-export type UserMessage = {
-  id: string
-  sessionID: string
-  role: "user"
-  time: {
-    created: number
+export type EventSessionDiff = {
+  type: "session.diff"
+  properties: {
+    sessionID: string
+    diff: Array<FileDiff>
   }
-  format?: OutputFormat
-  summary?: {
-    title?: string
-    body?: string
-    diffs: Array<FileDiff>
-  }
-  agent: string
-  model: {
-    providerID: string
-    modelID: string
-  }
-  system?: string
-  tools?: {
-    [key: string]: boolean
-  }
-  variant?: string
 }
 
 export type ProviderAuthError = {
@@ -301,6 +425,137 @@ export type ApiError = {
   }
 }
 
+export type EventSessionError = {
+  type: "session.error"
+  properties: {
+    sessionID?: string
+    error?:
+      | ProviderAuthError
+      | UnknownError
+      | MessageOutputLengthError
+      | MessageAbortedError
+      | StructuredOutputError
+      | ContextOverflowError
+      | ApiError
+  }
+}
+
+export type EventVcsBranchUpdated = {
+  type: "vcs.branch.updated"
+  properties: {
+    branch?: string
+  }
+}
+
+export type EventWorkspaceReady = {
+  type: "workspace.ready"
+  properties: {
+    name: string
+  }
+}
+
+export type EventWorkspaceFailed = {
+  type: "workspace.failed"
+  properties: {
+    message: string
+  }
+}
+
+export type Pty = {
+  id: string
+  title: string
+  command: string
+  args: Array<string>
+  cwd: string
+  status: "running" | "exited"
+  pid: number
+}
+
+export type EventPtyCreated = {
+  type: "pty.created"
+  properties: {
+    info: Pty
+  }
+}
+
+export type EventPtyUpdated = {
+  type: "pty.updated"
+  properties: {
+    info: Pty
+  }
+}
+
+export type EventPtyExited = {
+  type: "pty.exited"
+  properties: {
+    id: string
+    exitCode: number
+  }
+}
+
+export type EventPtyDeleted = {
+  type: "pty.deleted"
+  properties: {
+    id: string
+  }
+}
+
+export type EventWorktreeReady = {
+  type: "worktree.ready"
+  properties: {
+    name: string
+    branch: string
+  }
+}
+
+export type EventWorktreeFailed = {
+  type: "worktree.failed"
+  properties: {
+    message: string
+  }
+}
+
+export type OutputFormatText = {
+  type: "text"
+}
+
+export type JsonSchema = {
+  [key: string]: unknown
+}
+
+export type OutputFormatJsonSchema = {
+  type: "json_schema"
+  schema: JsonSchema
+  retryCount?: number
+}
+
+export type OutputFormat = OutputFormatText | OutputFormatJsonSchema
+
+export type UserMessage = {
+  id: string
+  sessionID: string
+  role: "user"
+  time: {
+    created: number
+  }
+  format?: OutputFormat
+  summary?: {
+    title?: string
+    body?: string
+    diffs: Array<FileDiff>
+  }
+  agent: string
+  model: {
+    providerID: string
+    modelID: string
+  }
+  system?: string
+  tools?: {
+    [key: string]: boolean
+  }
+  variant?: string
+}
+
 export type AssistantMessage = {
   id: string
   sessionID: string
@@ -348,6 +603,7 @@ export type Message = UserMessage | AssistantMessage
 export type EventMessageUpdated = {
   type: "message.updated"
   properties: {
+    sessionID: string
     info: Message
   }
 }
@@ -625,18 +881,9 @@ export type Part =
 export type EventMessagePartUpdated = {
   type: "message.part.updated"
   properties: {
-    part: Part
-  }
-}
-
-export type EventMessagePartDelta = {
-  type: "message.part.delta"
-  properties: {
     sessionID: string
-    messageID: string
-    partID: string
-    field: string
-    delta: string
+    part: Part
+    time: number
   }
 }
 
@@ -646,152 +893,6 @@ export type EventMessagePartRemoved = {
     sessionID: string
     messageID: string
     partID: string
-  }
-}
-
-export type SessionStatus =
-  | {
-      type: "idle"
-    }
-  | {
-      type: "retry"
-      attempt: number
-      message: string
-      next: number
-    }
-  | {
-      type: "busy"
-    }
-
-export type EventSessionStatus = {
-  type: "session.status"
-  properties: {
-    sessionID: string
-    status: SessionStatus
-  }
-}
-
-export type EventSessionIdle = {
-  type: "session.idle"
-  properties: {
-    sessionID: string
-  }
-}
-
-export type EventSessionCompacted = {
-  type: "session.compacted"
-  properties: {
-    sessionID: string
-  }
-}
-
-export type EventFileWatcherUpdated = {
-  type: "file.watcher.updated"
-  properties: {
-    file: string
-    event: "add" | "change" | "unlink"
-  }
-}
-
-export type Todo = {
-  /**
-   * Brief description of the task
-   */
-  content: string
-  /**
-   * Current status of the task: pending, in_progress, completed, cancelled
-   */
-  status: string
-  /**
-   * Priority level of the task: high, medium, low
-   */
-  priority: string
-}
-
-export type EventTodoUpdated = {
-  type: "todo.updated"
-  properties: {
-    sessionID: string
-    todos: Array<Todo>
-  }
-}
-
-export type EventTuiPromptAppend = {
-  type: "tui.prompt.append"
-  properties: {
-    text: string
-  }
-}
-
-export type EventTuiCommandExecute = {
-  type: "tui.command.execute"
-  properties: {
-    command:
-      | "session.list"
-      | "session.new"
-      | "session.share"
-      | "session.interrupt"
-      | "session.compact"
-      | "session.page.up"
-      | "session.page.down"
-      | "session.line.up"
-      | "session.line.down"
-      | "session.half.page.up"
-      | "session.half.page.down"
-      | "session.first"
-      | "session.last"
-      | "prompt.clear"
-      | "prompt.submit"
-      | "agent.cycle"
-      | string
-  }
-}
-
-export type EventTuiToastShow = {
-  type: "tui.toast.show"
-  properties: {
-    title?: string
-    message: string
-    variant: "info" | "success" | "warning" | "error"
-    /**
-     * Duration in milliseconds
-     */
-    duration?: number
-  }
-}
-
-export type EventTuiSessionSelect = {
-  type: "tui.session.select"
-  properties: {
-    /**
-     * Session ID to navigate to
-     */
-    sessionID: string
-  }
-}
-
-export type EventMcpToolsChanged = {
-  type: "mcp.tools.changed"
-  properties: {
-    server: string
-  }
-}
-
-export type EventMcpBrowserOpenFailed = {
-  type: "mcp.browser.open.failed"
-  properties: {
-    mcpName: string
-    url: string
-  }
-}
-
-export type EventCommandExecuted = {
-  type: "command.executed"
-  properties: {
-    name: string
-    sessionID: string
-    arguments: string
-    messageID: string
   }
 }
 
@@ -842,6 +943,7 @@ export type Session = {
 export type EventSessionCreated = {
   type: "session.created"
   properties: {
+    sessionID: string
     info: Session
   }
 }
@@ -849,6 +951,7 @@ export type EventSessionCreated = {
 export type EventSessionUpdated = {
   type: "session.updated"
   properties: {
+    sessionID: string
     info: Session
   }
 }
@@ -856,105 +959,8 @@ export type EventSessionUpdated = {
 export type EventSessionDeleted = {
   type: "session.deleted"
   properties: {
-    info: Session
-  }
-}
-
-export type EventSessionDiff = {
-  type: "session.diff"
-  properties: {
     sessionID: string
-    diff: Array<FileDiff>
-  }
-}
-
-export type EventSessionError = {
-  type: "session.error"
-  properties: {
-    sessionID?: string
-    error?:
-      | ProviderAuthError
-      | UnknownError
-      | MessageOutputLengthError
-      | MessageAbortedError
-      | StructuredOutputError
-      | ContextOverflowError
-      | ApiError
-  }
-}
-
-export type EventVcsBranchUpdated = {
-  type: "vcs.branch.updated"
-  properties: {
-    branch?: string
-  }
-}
-
-export type EventWorkspaceReady = {
-  type: "workspace.ready"
-  properties: {
-    name: string
-  }
-}
-
-export type EventWorkspaceFailed = {
-  type: "workspace.failed"
-  properties: {
-    message: string
-  }
-}
-
-export type Pty = {
-  id: string
-  title: string
-  command: string
-  args: Array<string>
-  cwd: string
-  status: "running" | "exited"
-  pid: number
-}
-
-export type EventPtyCreated = {
-  type: "pty.created"
-  properties: {
-    info: Pty
-  }
-}
-
-export type EventPtyUpdated = {
-  type: "pty.updated"
-  properties: {
-    info: Pty
-  }
-}
-
-export type EventPtyExited = {
-  type: "pty.exited"
-  properties: {
-    id: string
-    exitCode: number
-  }
-}
-
-export type EventPtyDeleted = {
-  type: "pty.deleted"
-  properties: {
-    id: string
-  }
-}
-
-export type EventWorktreeReady = {
-  type: "worktree.ready"
-  properties: {
-    name: string
-    branch: string
-  }
-}
-
-export type EventWorktreeFailed = {
-  type: "worktree.failed"
-  properties: {
-    message: string
+    info: Session
   }
 }
 
@@ -963,24 +969,20 @@ export type Event =
   | EventInstallationUpdateAvailable
   | EventProjectUpdated
   | EventServerInstanceDisposed
-  | EventPermissionAsked
-  | EventPermissionReplied
-  | EventQuestionAsked
-  | EventQuestionReplied
-  | EventQuestionRejected
   | EventServerConnected
   | EventGlobalDisposed
   | EventLspClientDiagnostics
   | EventLspUpdated
-  | EventFileEdited
-  | EventMessageUpdated
-  | EventMessageRemoved
-  | EventMessagePartUpdated
   | EventMessagePartDelta
-  | EventMessagePartRemoved
+  | EventPermissionAsked
+  | EventPermissionReplied
   | EventSessionStatus
   | EventSessionIdle
+  | EventQuestionAsked
+  | EventQuestionReplied
+  | EventQuestionRejected
   | EventSessionCompacted
+  | EventFileEdited
   | EventFileWatcherUpdated
   | EventTodoUpdated
   | EventTuiPromptAppend
@@ -990,9 +992,6 @@ export type Event =
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
-  | EventSessionCreated
-  | EventSessionUpdated
-  | EventSessionDeleted
   | EventSessionDiff
   | EventSessionError
   | EventVcsBranchUpdated
@@ -1004,10 +1003,118 @@ export type Event =
   | EventPtyDeleted
   | EventWorktreeReady
   | EventWorktreeFailed
+  | EventMessageUpdated
+  | EventMessageRemoved
+  | EventMessagePartUpdated
+  | EventMessagePartRemoved
+  | EventSessionCreated
+  | EventSessionUpdated
+  | EventSessionDeleted
 
 export type GlobalEvent = {
   directory: string
   payload: Event
+}
+
+export type SyncEventMessageUpdated = {
+  type: "message.updated.1"
+  aggregate: "sessionID"
+  data: {
+    sessionID: string
+    info: Message
+  }
+}
+
+export type SyncEventMessageRemoved = {
+  type: "message.removed.1"
+  aggregate: "sessionID"
+  data: {
+    sessionID: string
+    messageID: string
+  }
+}
+
+export type SyncEventMessagePartUpdated = {
+  type: "message.part.updated.1"
+  aggregate: "sessionID"
+  data: {
+    sessionID: string
+    part: Part
+    time: number
+  }
+}
+
+export type SyncEventMessagePartRemoved = {
+  type: "message.part.removed.1"
+  aggregate: "sessionID"
+  data: {
+    sessionID: string
+    messageID: string
+    partID: string
+  }
+}
+
+export type SyncEventSessionCreated = {
+  type: "session.created.1"
+  aggregate: "sessionID"
+  data: {
+    sessionID: string
+    info: Session
+  }
+}
+
+export type SyncEventSessionUpdated = {
+  type: "session.updated.1"
+  aggregate: "sessionID"
+  data: {
+    sessionID: string
+    info: {
+      id: string | null
+      key: string | null
+      slug: string | null
+      projectID: string | null
+      workspaceID: string | null
+      directory: string | null
+      parentID: string | null
+      summary: {
+        additions: number
+        deletions: number
+        files: number
+        diffs?: Array<FileDiff>
+      } | null
+      share?: {
+        url: string | null
+      }
+      title: string | null
+      version: string | null
+      time?: {
+        created: number | null
+        updated: number | null
+        compacting: number | null
+        archived: number | null
+      }
+      permission: PermissionRuleset | null
+      revert: {
+        messageID: string
+        partID?: string
+        snapshot?: string
+        diff?: string
+      } | null
+    }
+  }
+}
+
+export type SyncEventSessionDeleted = {
+  type: "session.deleted.1"
+  aggregate: "sessionID"
+  data: {
+    sessionID: string
+    info: Session
+  }
+}
+
+export type SyncEvent = {
+  payload: SyncEvent
 }
 
 /**
@@ -1061,7 +1168,6 @@ export type PermissionConfig =
       task?: PermissionRuleConfig
       external_directory?: PermissionRuleConfig
       todowrite?: PermissionActionConfig
-      todoread?: PermissionActionConfig
       question?: PermissionActionConfig
       webfetch?: PermissionActionConfig
       websearch?: PermissionActionConfig
@@ -1343,8 +1449,19 @@ export type Config = {
   watcher?: {
     ignore?: Array<string>
   }
-  plugin?: Array<string>
+  /**
+   * Enable or disable snapshot tracking. When false, filesystem snapshots are not recorded and undoing or reverting will not undo/redo file changes. Defaults to true.
+   */
   snapshot?: boolean
+  plugin?: Array<
+    | string
+    | [
+        string,
+        {
+          [key: string]: unknown
+        },
+      ]
+  >
   /**
    * Control sharing behavior:'manual' allows manual sharing via commands, 'auto' enables automatic sharing, 'disabled' disables all sharing
    */
@@ -1768,6 +1885,34 @@ export type SubtaskPartInput = {
 export type ProviderAuthMethod = {
   type: "oauth" | "api"
   label: string
+  prompts?: Array<
+    | {
+        type: "text"
+        key: string
+        message: string
+        placeholder?: string
+        when?: {
+          key: string
+          op: "eq" | "neq"
+          value: string
+        }
+      }
+    | {
+        type: "select"
+        key: string
+        message: string
+        options: Array<{
+          label: string
+          value: string
+          hint?: string
+        }>
+        when?: {
+          key: string
+          op: "eq" | "neq"
+          value: string
+        }
+      }
+  >
 }
 
 export type ProviderAuthAuthorization = {
@@ -1860,7 +2005,7 @@ export type Path = {
 }
 
 export type VcsInfo = {
-  branch: string
+  branch?: string
 }
 
 export type Command = {
@@ -1944,6 +2089,23 @@ export type GlobalEventResponses = {
 
 export type GlobalEventResponse = GlobalEventResponses[keyof GlobalEventResponses]
 
+export type GlobalSyncEventSubscribeData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/sync-event"
+}
+
+export type GlobalSyncEventSubscribeResponses = {
+  /**
+   * Event stream
+   */
+  200: SyncEvent
+}
+
+export type GlobalSyncEventSubscribeResponse =
+  GlobalSyncEventSubscribeResponses[keyof GlobalSyncEventSubscribeResponses]
+
 export type GlobalConfigGetData = {
   body?: never
   path?: never
@@ -2001,6 +2163,41 @@ export type GlobalDisposeResponses = {
 
 export type GlobalDisposeResponse = GlobalDisposeResponses[keyof GlobalDisposeResponses]
 
+export type GlobalUpgradeData = {
+  body?: {
+    target?: string
+  }
+  path?: never
+  query?: never
+  url: "/global/upgrade"
+}
+
+export type GlobalUpgradeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalUpgradeError = GlobalUpgradeErrors[keyof GlobalUpgradeErrors]
+
+export type GlobalUpgradeResponses = {
+  /**
+   * Upgrade result
+   */
+  200:
+    | {
+        success: true
+        version: string
+      }
+    | {
+        success: false
+        error: string
+      }
+}
+
+export type GlobalUpgradeResponse = GlobalUpgradeResponses[keyof GlobalUpgradeResponses]
+
 export type AuthRemoveData = {
   body?: never
   path: {
@@ -2054,6 +2251,53 @@ export type AuthSetResponses = {
 }
 
 export type AuthSetResponse = AuthSetResponses[keyof AuthSetResponses]
+
+export type AppLogData = {
+  body?: {
+    /**
+     * Service name for the log entry
+     */
+    service: string
+    /**
+     * Log level
+     */
+    level: "debug" | "info" | "error" | "warn"
+    /**
+     * Log message
+     */
+    message: string
+    /**
+     * Additional metadata for the log entry
+     */
+    extra?: {
+      [key: string]: unknown
+    }
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/log"
+}
+
+export type AppLogErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type AppLogError = AppLogErrors[keyof AppLogErrors]
+
+export type AppLogResponses = {
+  /**
+   * Log entry written successfully
+   */
+  200: boolean
+}
+
+export type AppLogResponse = AppLogResponses[keyof AppLogResponses]
 
 export type ProjectListData = {
   body?: never
@@ -2669,6 +2913,10 @@ export type ExperimentalSessionListData = {
     directory?: string
     workspace?: string
     /**
+     * Filter sessions by stable key (normalized)
+     */
+    key?: string
+    /**
      * Only return root sessions (no parentID)
      */
     roots?: boolean
@@ -2803,43 +3051,6 @@ export type SessionCreateResponses = {
 
 export type SessionCreateResponse = SessionCreateResponses[keyof SessionCreateResponses]
 
-export type SessionGetByKeyData = {
-  body?: never
-  path: {
-    /**
-     * Stable session key
-     */
-    sessionKey: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/session/key/{sessionKey}"
-}
-
-export type SessionGetByKeyErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-  /**
-   * Not found
-   */
-  404: NotFoundError
-}
-
-export type SessionGetByKeyError = SessionGetByKeyErrors[keyof SessionGetByKeyErrors]
-
-export type SessionGetByKeyResponses = {
-  /**
-   * Get session by key
-   */
-  200: Session
-}
-
-export type SessionGetByKeyResponse = SessionGetByKeyResponses[keyof SessionGetByKeyResponses]
-
 export type SessionStatusData = {
   body?: never
   path?: never
@@ -2937,6 +3148,40 @@ export type SessionGetResponses = {
 }
 
 export type SessionGetResponse = SessionGetResponses[keyof SessionGetResponses]
+
+export type SessionGetByKeyData = {
+  body?: never
+  path: {
+    sessionKey: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/key/{sessionKey}"
+}
+
+export type SessionGetByKeyErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionGetByKeyError = SessionGetByKeyErrors[keyof SessionGetByKeyErrors]
+
+export type SessionGetByKeyResponses = {
+  /**
+   * Get session by key
+   */
+  200: Session
+}
+
+export type SessionGetByKeyResponse = SessionGetByKeyResponses[keyof SessionGetByKeyResponses]
 
 export type SessionUpdateData = {
   body?: {
@@ -4024,6 +4269,12 @@ export type ProviderOauthAuthorizeData = {
      * Auth method index
      */
     method: number
+    /**
+     * Prompt inputs
+     */
+    inputs?: {
+      [key: string]: string
+    }
   }
   path: {
     /**
@@ -4235,6 +4486,25 @@ export type FileStatusResponses = {
 }
 
 export type FileStatusResponse = FileStatusResponses[keyof FileStatusResponses]
+
+export type EventSubscribeData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/event"
+}
+
+export type EventSubscribeResponses = {
+  /**
+   * Event stream
+   */
+  200: Event
+}
+
+export type EventSubscribeResponse = EventSubscribeResponses[keyof EventSubscribeResponses]
 
 export type McpStatusData = {
   body?: never
@@ -4859,53 +5129,6 @@ export type CommandListResponses = {
 
 export type CommandListResponse = CommandListResponses[keyof CommandListResponses]
 
-export type AppLogData = {
-  body?: {
-    /**
-     * Service name for the log entry
-     */
-    service: string
-    /**
-     * Log level
-     */
-    level: "debug" | "info" | "error" | "warn"
-    /**
-     * Log message
-     */
-    message: string
-    /**
-     * Additional metadata for the log entry
-     */
-    extra?: {
-      [key: string]: unknown
-    }
-  }
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/log"
-}
-
-export type AppLogErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-}
-
-export type AppLogError = AppLogErrors[keyof AppLogErrors]
-
-export type AppLogResponses = {
-  /**
-   * Log entry written successfully
-   */
-  200: boolean
-}
-
-export type AppLogResponse = AppLogResponses[keyof AppLogResponses]
-
 export type AppAgentsData = {
   body?: never
   path?: never
@@ -4986,22 +5209,3 @@ export type FormatterStatusResponses = {
 }
 
 export type FormatterStatusResponse = FormatterStatusResponses[keyof FormatterStatusResponses]
-
-export type EventSubscribeData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/event"
-}
-
-export type EventSubscribeResponses = {
-  /**
-   * Event stream
-   */
-  200: Event
-}
-
-export type EventSubscribeResponse = EventSubscribeResponses[keyof EventSubscribeResponses]
