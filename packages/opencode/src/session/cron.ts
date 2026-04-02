@@ -3,8 +3,9 @@ import path from "path"
 import z from "zod"
 import { Instance } from "@/project/instance"
 import { Identifier } from "@/id/id"
-import { Scheduler } from "@/scheduler"
 import { Provider } from "@/provider/provider"
+import { ModelID, ProviderID } from "@/provider/schema"
+import { MessageID, SessionID } from "@/session/schema"
 import { fn } from "@/util/fn"
 import { Session } from "."
 import { SessionPrompt } from "./prompt"
@@ -294,7 +295,10 @@ export namespace SessionCron {
       jobs: [] as Job[],
       queue: Promise.resolve(),
       running: new Set<string>(),
+      timer: undefined as ReturnType<typeof setInterval> | undefined,
     }
+  }, async (state) => {
+    if (state.timer) clearInterval(state.timer)
   })
 
   function filepath() {
@@ -406,7 +410,7 @@ export namespace SessionCron {
       if (byKey) return byKey
     }
     if (!job.sessionID) return
-    return Session.get(job.sessionID).catch(() => undefined)
+    return Session.get(SessionID.make(job.sessionID)).catch(() => undefined)
   }
 
   async function enqueue(job: Job) {
@@ -414,7 +418,7 @@ export namespace SessionCron {
     if (!target) throw new Error(`session not found for cron job: ${job.id}`)
 
     const interactive = job.reply === true
-    const messageID = interactive ? Identifier.ascending("message") : undefined
+    const messageID = interactive ? MessageID.ascending() : undefined
     const text = interactive
       ? [
           `[cron:${job.name}]`,
@@ -423,7 +427,7 @@ export namespace SessionCron {
           `Task: ${job.prompt}`,
         ].join("\n")
       : `[cron:${job.name}] ${job.prompt}`
-    const send = (msgID?: string, model?: { providerID: string; modelID: string }) =>
+    const send = (msgID?: MessageID, model?: { providerID: ProviderID; modelID: ModelID }) =>
       SessionPrompt.prompt({
         sessionID: target.id,
         messageID: msgID,
@@ -442,7 +446,7 @@ export namespace SessionCron {
     const result = await send(messageID).catch(async (error) => {
       if (!Provider.ModelNotFoundError.isInstance(error)) throw error
       const fallback = await Provider.defaultModel()
-      return send(interactive ? Identifier.ascending("message") : undefined, fallback)
+      return send(interactive ? MessageID.ascending() : undefined, fallback)
     })
     if (interactive && result.info.role !== "assistant") {
       throw new Error(`cron job did not produce an assistant reply: ${job.id}`)
@@ -456,14 +460,15 @@ export namespace SessionCron {
   }
 
   export function init() {
-    Scheduler.register({
-      id: "session.cron.tick",
-      interval: tick,
-      run: async () => {
-        await runDue()
-      },
-      scope: "instance",
-    })
+    const current = state()
+    if (current.timer) return
+    const directory = Instance.directory
+    current.timer = setInterval(() => {
+      void Instance.provide({
+        directory,
+        fn: runDue,
+      })
+    }, tick)
   }
 
   export const status = fn(z.object({}).optional(), async () => {

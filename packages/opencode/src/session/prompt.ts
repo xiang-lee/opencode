@@ -1314,7 +1314,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               messages: msgs,
             }),
           ).pipe(
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               Effect.sync(() => {
                 log.warn("prompt memory sync failed", {
                   error,

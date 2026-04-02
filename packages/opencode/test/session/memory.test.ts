@@ -1,21 +1,22 @@
 import { describe, expect, test } from "bun:test"
-import { Identifier } from "../../src/id/id"
 import { Instance } from "../../src/project/instance"
+import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
 import type { MessageV2 } from "../../src/session/message-v2"
+import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionMemory } from "../../src/session/memory"
 import { SessionPrompt } from "../../src/session/prompt"
 import { tmpdir } from "../fixture/fixture"
 
-async function push(sessionID: string, dir: string, user: string, assistant: string) {
+async function push(sessionID: SessionID, dir: string, user: string, assistant: string) {
   const msg = await Session.updateMessage({
-    id: Identifier.ascending("message"),
+    id: MessageID.ascending(),
     role: "user",
     sessionID,
     agent: "default",
     model: {
-      providerID: "openai",
-      modelID: "gpt-4",
+      providerID: ProviderID.make("openai"),
+      modelID: ModelID.make("gpt-4"),
     },
     time: {
       created: Date.now(),
@@ -23,7 +24,7 @@ async function push(sessionID: string, dir: string, user: string, assistant: str
   })
 
   await Session.updatePart({
-    id: Identifier.ascending("part"),
+    id: PartID.ascending(),
     messageID: msg.id,
     sessionID,
     type: "text",
@@ -31,7 +32,7 @@ async function push(sessionID: string, dir: string, user: string, assistant: str
   })
 
   const answer: MessageV2.Assistant = {
-    id: Identifier.ascending("message"),
+    id: MessageID.ascending(),
     role: "assistant",
     sessionID,
     mode: "default",
@@ -47,8 +48,8 @@ async function push(sessionID: string, dir: string, user: string, assistant: str
       reasoning: 0,
       cache: { read: 0, write: 0 },
     },
-    modelID: "gpt-4",
-    providerID: "openai",
+    modelID: ModelID.make("gpt-4"),
+    providerID: ProviderID.make("openai"),
     parentID: msg.id,
     time: {
       created: Date.now(),
@@ -57,7 +58,7 @@ async function push(sessionID: string, dir: string, user: string, assistant: str
   }
   await Session.updateMessage(answer)
   await Session.updatePart({
-    id: Identifier.ascending("part"),
+    id: PartID.ascending(),
     messageID: answer.id,
     sessionID,
     type: "text",

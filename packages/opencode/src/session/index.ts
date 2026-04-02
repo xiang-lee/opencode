@@ -438,9 +438,9 @@ export namespace Session {
         return fromRow(row)
       })
 
-      const getByKey = Effect.fn("Session.getByKey")(function* (key: string) {
+      const lookupByKey = Effect.fn("Session.lookupByKey")(function* (key: string) {
         const value = normalizeKey(key)
-        if (!value) throw new NotFoundError({ message: `Session not found for key: ${key}` })
+        if (!value) return undefined
         const row = yield* db((d) =>
           d
             .select()
@@ -449,8 +449,14 @@ export namespace Session {
             .orderBy(desc(SessionTable.time_updated))
             .get(),
         )
-        if (!row) throw new NotFoundError({ message: `Session not found for key: ${key}` })
+        if (!row) return undefined
         return fromRow(row)
+      })
+
+      const getByKey = Effect.fn("Session.getByKey")(function* (key: string) {
+        const row = yield* lookupByKey(key)
+        if (!row) throw new NotFoundError({ message: `Session not found for key: ${key}` })
+        return row
       })
 
       const share = Effect.fn("Session.share")(function* (id: SessionID) {
@@ -528,7 +534,7 @@ export namespace Session {
       }) {
         const key = normalizeKey(input?.key)
         if (key) {
-          const existing = yield* getByKey(key).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+          const existing = yield* lookupByKey(key)
           if (existing) return existing
         }
         return yield* createNext({
@@ -539,10 +545,10 @@ export namespace Session {
           permission: input?.permission,
           workspaceID: input?.workspaceID,
         }).pipe(
-          Effect.catchAll((error) => {
+          Effect.catch((error) => {
             if (!key) return Effect.fail(error)
             if (`${error}`.includes("UNIQUE constraint failed: session.project_id, session.session_key")) {
-              return getByKey(key)
+              return lookupByKey(key).pipe(Effect.flatMap((row) => (row ? Effect.succeed(row) : Effect.fail(error))))
             }
             return Effect.fail(error)
           }),

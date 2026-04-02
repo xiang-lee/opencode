@@ -3,6 +3,8 @@ import { Hono } from "hono"
 import { proxy } from "hono/proxy"
 import z from "zod"
 import { createHash } from "node:crypto"
+import fs from "node:fs"
+import nodePath from "node:path"
 import { Log } from "../util/log"
 import { Format } from "../format"
 import { TuiRoutes } from "./routes/tui"
@@ -39,6 +41,32 @@ const DEFAULT_CSP =
 
 const csp = (hash = "") =>
   `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${hash ? ` 'sha256-${hash}'` : ""}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:`
+
+const localWebUICandidates = [
+  nodePath.resolve(process.cwd(), "packages/app/dist"),
+  nodePath.resolve(process.cwd(), "../app/dist"),
+  nodePath.resolve(process.cwd(), "../../app/dist"),
+]
+
+const localWebUIRoot = localWebUICandidates.find((root) => fs.existsSync(nodePath.join(root, "index.html")))
+
+async function localWebUI(requestPath: string) {
+  if (!localWebUIRoot) return null
+
+  const index = nodePath.join(localWebUIRoot, "index.html")
+  const normalized = requestPath === "/" ? "/index.html" : requestPath
+  const relative = normalized.replace(/^\/+/, "")
+  const candidate = nodePath.normalize(nodePath.join(localWebUIRoot, relative))
+
+  if (!candidate.startsWith(localWebUIRoot + nodePath.sep) && candidate !== index) return null
+
+  const file = Bun.file(candidate)
+  if (await file.exists()) return file
+
+  const fallback = Bun.file(index)
+  if (await fallback.exists()) return fallback
+  return null
+}
 
 export const InstanceRoutes = (app?: Hono) =>
   (app ?? new Hono())
@@ -250,10 +278,19 @@ export const InstanceRoutes = (app?: Hono) =>
     )
     .all("/*", async (c) => {
       const embeddedWebUI = await embeddedUIPromise
-      const path = c.req.path
+      const requestPath = c.req.path
+
+      const local = await localWebUI(requestPath)
+      if (local) {
+        c.header("Content-Type", local.type)
+        if (local.type.startsWith("text/html")) {
+          c.header("Content-Security-Policy", DEFAULT_CSP)
+        }
+        return c.body(await local.arrayBuffer())
+      }
 
       if (embeddedWebUI) {
-        const match = embeddedWebUI[path.replace(/^\//, "")] ?? embeddedWebUI["index.html"] ?? null
+        const match = embeddedWebUI[requestPath.replace(/^\//, "")] ?? embeddedWebUI["index.html"] ?? null
         if (!match) return c.json({ error: "Not Found" }, 404)
         const file = Bun.file(match)
         if (await file.exists()) {
@@ -266,7 +303,7 @@ export const InstanceRoutes = (app?: Hono) =>
           return c.json({ error: "Not Found" }, 404)
         }
       } else {
-        const response = await proxy(`https://app.opencode.ai${path}`, {
+        const response = await proxy(`https://app.opencode.ai${requestPath}`, {
           ...c.req,
           headers: {
             ...c.req.raw.headers,

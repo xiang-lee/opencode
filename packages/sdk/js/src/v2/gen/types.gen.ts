@@ -908,6 +908,7 @@ export type PermissionRuleset = Array<PermissionRule>
 
 export type Session = {
   id: string
+  key?: string
   slug: string
   projectID: string
   workspaceID?: string
@@ -1069,6 +1070,7 @@ export type SyncEventSessionUpdated = {
     sessionID: string
     info: {
       id: string | null
+      key: string | null
       slug: string | null
       projectID: string | null
       workspaceID: string | null
@@ -2910,6 +2912,10 @@ export type ExperimentalSessionListData = {
     directory?: string
     workspace?: string
     /**
+     * Filter sessions by stable key (normalized)
+     */
+    key?: string
+    /**
      * Only return root sessions (no parentID)
      */
     roots?: boolean
@@ -2978,6 +2984,10 @@ export type SessionListData = {
     directory?: string
     workspace?: string
     /**
+     * Filter sessions by stable key (normalized)
+     */
+    key?: string
+    /**
      * Only return root sessions (no parentID)
      */
     roots?: boolean
@@ -3009,6 +3019,7 @@ export type SessionListResponse = SessionListResponses[keyof SessionListResponse
 export type SessionCreateData = {
   body?: {
     parentID?: string
+    key?: string
     title?: string
     permission?: PermissionRuleset
     workspaceID?: string
@@ -3136,6 +3147,40 @@ export type SessionGetResponses = {
 }
 
 export type SessionGetResponse = SessionGetResponses[keyof SessionGetResponses]
+
+export type SessionGetByKeyData = {
+  body?: never
+  path: {
+    sessionKey: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/key/{sessionKey}"
+}
+
+export type SessionGetByKeyErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionGetByKeyError = SessionGetByKeyErrors[keyof SessionGetByKeyErrors]
+
+export type SessionGetByKeyResponses = {
+  /**
+   * Get session by key
+   */
+  200: Session
+}
+
+export type SessionGetByKeyResponse = SessionGetByKeyResponses[keyof SessionGetByKeyResponses]
 
 export type SessionUpdateData = {
   body?: {

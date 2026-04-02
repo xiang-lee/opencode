@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import z from "zod"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
+import { MessageID } from "../../src/session/schema"
 import { CronTool } from "../../src/tool/cron"
 import { tmpdir } from "../fixture/fixture"
 
@@ -26,7 +27,7 @@ describe("tool.cron", () => {
         const tool = await CronTool.init()
         const ctx = {
           sessionID: session.id,
-          messageID: "msg_test",
+          messageID: MessageID.make("msg_test"),
           callID: "call_test",
           agent: "default",
           abort: AbortSignal.any([]),

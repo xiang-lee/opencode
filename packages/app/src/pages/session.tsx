@@ -441,7 +441,17 @@ export default function Page() {
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
   const revertMessageID = createMemo(() => info()?.revert?.messageID)
-  const messages = createMemo(() => (params.id ? (sync.data.message[params.id] ?? []) : []))
+  const compareMessages = (a: { id: string; time?: { created?: number } }, b: { id: string; time?: { created?: number } }) => {
+    const at = a.time?.created ?? 0
+    const bt = b.time?.created ?? 0
+    if (at !== bt) return at - bt
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  }
+  const messages = createMemo(() => {
+    const id = params.id
+    if (!id) return []
+    return (sync.data.message[id] ?? []).slice().sort(compareMessages)
+  })
   const messagesReady = createMemo(() => {
     const id = params.id
     if (!id) return true

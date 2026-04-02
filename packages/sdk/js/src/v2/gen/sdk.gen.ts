@@ -121,6 +121,8 @@ import type {
   SessionDeleteResponses,
   SessionDiffResponses,
   SessionForkResponses,
+  SessionGetByKeyErrors,
+  SessionGetByKeyResponses,
   SessionGetErrors,
   SessionGetResponses,
   SessionInitErrors,
@@ -1407,6 +1409,7 @@ export class Session2 extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
+      key?: string
       roots?: boolean
       start?: number
       search?: string
@@ -1421,6 +1424,7 @@ export class Session2 extends HeyApiClient {
           args: [
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
+            { in: "query", key: "key" },
             { in: "query", key: "roots" },
             { in: "query", key: "start" },
             { in: "query", key: "search" },
@@ -1446,6 +1450,7 @@ export class Session2 extends HeyApiClient {
       directory?: string
       workspace?: string
       parentID?: string
+      key?: string
       title?: string
       permission?: PermissionRuleset
       workspaceID?: string
@@ -1460,6 +1465,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "body", key: "parentID" },
+            { in: "body", key: "key" },
             { in: "body", key: "title" },
             { in: "body", key: "permission" },
             { in: "body", key: "workspaceID" },
@@ -1476,6 +1482,38 @@ export class Session2 extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Get session by key
+   *
+   * Retrieve the latest session for a stable session key in the current project.
+   */
+  public getByKey<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionKey: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionKey" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionGetByKeyResponses, SessionGetByKeyErrors, ThrowOnError>({
+      url: "/session/key/{sessionKey}",
+      ...options,
+      ...params,
     })
   }
 
