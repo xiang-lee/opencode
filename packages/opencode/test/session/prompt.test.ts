@@ -227,6 +227,75 @@ describe("session.prompt special characters", () => {
 })
 
 describe("session.prompt regression", () => {
+  test("does not loop when client supplies a non-ascending messageID", async () => {
+    let calls = 0
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        if (!url.pathname.endsWith("/chat/completions")) {
+          return new Response("not found", { status: 404 })
+        }
+        calls++
+        return new Response(chat("OK"), {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        })
+      },
+    })
+
+    try {
+      await using tmp = await tmpdir({
+        git: true,
+        init: async (dir) => {
+          await Bun.write(
+            path.join(dir, "opencode.json"),
+            JSON.stringify({
+              $schema: "https://opencode.ai/config.json",
+              enabled_providers: ["alibaba"],
+              provider: {
+                alibaba: {
+                  options: {
+                    apiKey: "test-key",
+                    baseURL: `${server.url.origin}/v1`,
+                  },
+                },
+              },
+              agent: {
+                build: {
+                  model: "alibaba/qwen-plus",
+                },
+              },
+            }),
+          )
+        },
+      })
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await Session.create({ title: "Prompt loop regression" })
+          const result = await SessionPrompt.prompt({
+            sessionID: session.id,
+            messageID: "msg_test_single_1" as any,
+            agent: "build",
+            parts: [{ type: "text", text: "Reply with exactly OK and nothing else." }],
+          })
+
+          expect(result.info.role).toBe("assistant")
+          expect(result.parts.some((part) => part.type === "text" && part.text.includes("OK"))).toBe(true)
+
+          const msgs = await Session.messages({ sessionID: session.id })
+          expect(msgs.filter((msg) => msg.info.role === "user")).toHaveLength(1)
+          expect(msgs.filter((msg) => msg.info.role === "assistant")).toHaveLength(1)
+          expect(calls).toBe(1)
+        },
+      })
+    } finally {
+      server.stop(true)
+    }
+  })
+
   test("does not loop empty assistant turns for a simple reply", async () => {
     let calls = 0
     const server = Bun.serve({
