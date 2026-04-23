@@ -1,4 +1,4 @@
-import { Log } from "@/util/log"
+import { Log } from "@/util"
 import { Session } from "."
 import { SessionMemory } from "./memory"
 import { Instance } from "@/project/instance"
@@ -20,16 +20,16 @@ export namespace SessionHeartbeat {
     }
   }
 
-  const state = Instance.state(() => {
-    return {
-      seen: new Map<string, string>(),
-      plan: "",
-      next: 0,
-      timer: undefined as ReturnType<typeof setInterval> | undefined,
-    }
-  }, async (state) => {
-    if (state.timer) clearInterval(state.timer)
-  })
+  const stateValue = {
+    seen: new Map<string, string>(),
+    plan: "",
+    next: 0,
+    timer: undefined as ReturnType<typeof setInterval> | undefined,
+  }
+
+  function state() {
+    return stateValue
+  }
 
   function ms(input: string) {
     const match = input.trim().match(/^(\d+)(ms|s|m|h)$/i)

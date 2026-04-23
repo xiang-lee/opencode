@@ -1,5 +1,5 @@
 import { Instance } from "@/project/instance"
-import { Log } from "@/util/log"
+import { Log } from "@/util"
 import { Session } from "."
 import { SessionMemory } from "./memory"
 import { SessionPrompt } from "./prompt"

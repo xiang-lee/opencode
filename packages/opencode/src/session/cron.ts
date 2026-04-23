@@ -3,7 +3,7 @@ import path from "path"
 import z from "zod"
 import { Instance } from "@/project/instance"
 import { Identifier } from "@/id/id"
-import { Provider } from "@/provider/provider"
+import { Provider } from "@/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { MessageID, SessionID } from "@/session/schema"
 import { fn } from "@/util/fn"
@@ -289,17 +289,17 @@ export namespace SessionCron {
     })
     .optional()
 
-  const state = Instance.state(() => {
-    return {
-      loaded: false,
-      jobs: [] as Job[],
-      queue: Promise.resolve(),
-      running: new Set<string>(),
-      timer: undefined as ReturnType<typeof setInterval> | undefined,
-    }
-  }, async (state) => {
-    if (state.timer) clearInterval(state.timer)
-  })
+  const stateValue = {
+    loaded: false,
+    jobs: [] as Job[],
+    queue: Promise.resolve(),
+    running: new Set<string>(),
+    timer: undefined as ReturnType<typeof setInterval> | undefined,
+  }
+
+  function state() {
+    return stateValue
+  }
 
   function filepath() {
     return path.join(Instance.directory, ".opencode", "cron", "jobs.json")
@@ -443,11 +443,7 @@ export namespace SessionCron {
         ],
       })
 
-    const result = await send(messageID).catch(async (error) => {
-      if (!Provider.ModelNotFoundError.isInstance(error)) throw error
-      const fallback = await Provider.defaultModel()
-      return send(interactive ? MessageID.ascending() : undefined, fallback)
-    })
+    const result = await send(messageID)
     if (interactive && result.info.role !== "assistant") {
       throw new Error(`cron job did not produce an assistant reply: ${job.id}`)
     }

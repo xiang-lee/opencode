@@ -2,40 +2,57 @@ import { Plugin } from "../plugin"
 import { Format } from "../format"
 import { LSP } from "../lsp"
 import { File } from "../file"
-import { FileWatcher } from "../file/watcher"
 import { Snapshot } from "../snapshot"
-import { Project } from "./project"
-import { Vcs } from "./vcs"
+import * as Project from "./project"
+import * as Vcs from "./vcs"
 import { Bus } from "../bus"
 import { Command } from "../command"
 import { Instance } from "./instance"
-import { Log } from "@/util/log"
-import { ShareNext } from "@/share/share-next"
+import { Log } from "@/util"
+import { FileWatcher } from "@/file/watcher"
+import { ShareNext } from "@/share"
+import * as Effect from "effect/Effect"
+import { Config } from "@/config"
 import { SessionHeartbeat } from "@/session/heartbeat"
 import { SessionCron } from "@/session/cron"
 import { SessionMemory } from "@/session/memory"
 import { SessionBoot } from "@/session/boot"
 
-export async function InstanceBootstrap() {
+export const InstanceBootstrap = Effect.gen(function* () {
   Log.Default.info("bootstrapping", { directory: Instance.directory })
-  await SessionMemory.ensure({ directory: Instance.directory })
-  await Plugin.init()
-  ShareNext.init()
-  Format.init()
-  await LSP.init()
-  File.init()
-  FileWatcher.init()
-  Vcs.init()
-  Snapshot.init()
-  SessionHeartbeat.init()
-  SessionCron.init()
-  await SessionBoot.run().catch((error) => {
-    Log.Default.warn("boot hook failed", { error })
-  })
+  yield* Effect.promise(() => SessionMemory.ensure({ directory: Instance.directory }))
 
-  Bus.subscribe(Command.Event.Executed, async (payload) => {
-    if (payload.properties.name === Command.Default.INIT) {
-      await Project.setInitialized(Instance.project.id)
-    }
+  // everything depends on config so eager load it for nice traces
+  yield* Config.Service.use((svc) => svc.get())
+  // Plugin can mutate config so it has to be initialized before anything else.
+  yield* Plugin.Service.use((svc) => svc.init())
+  yield* Effect.all(
+    [
+      LSP.Service,
+      ShareNext.Service,
+      Format.Service,
+      File.Service,
+      FileWatcher.Service,
+      Vcs.Service,
+      Snapshot.Service,
+    ].map((s) => Effect.forkDetach(s.use((i) => i.init()))),
+  ).pipe(Effect.withSpan("InstanceBootstrap.init"))
+
+  yield* Effect.sync(() => {
+    SessionHeartbeat.init()
+    SessionCron.init()
   })
-}
+  yield* Effect.promise(() =>
+    SessionBoot.run().catch((error) => {
+      Log.Default.warn("boot hook failed", { error })
+    }),
+  )
+
+  yield* Bus.Service.use((svc) =>
+    svc.subscribeCallback(Command.Event.Executed, async (payload) => {
+      if (payload.properties.name === Command.Default.INIT) {
+        Project.setInitialized(Instance.project.id)
+      }
+    }),
+  )
+}).pipe(Effect.withSpan("InstanceBootstrap"))

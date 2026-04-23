@@ -1,5 +1,7 @@
 import z from "zod"
-import { Tool } from "./tool"
+import { Effect, Schema } from "effect"
+import * as Tool from "./tool"
+import { ZodOverride } from "@/util/effect-zod"
 import { SessionCron } from "@/session/cron"
 import { Identifier } from "@/id/id"
 import { Session } from "@/session"
@@ -30,7 +32,7 @@ const patchJobInput = z.object({
   sessionKey: z.string().nullable().optional(),
 })
 
-const params = z.object({
+const paramsZod = z.object({
   action: z.enum(actions),
   includeDisabled: z.boolean().optional(),
   job: createJobInput.optional(),
@@ -38,6 +40,10 @@ const params = z.object({
   patch: patchJobInput.optional(),
   mode: z.enum(["due", "force"]).optional(),
   limit: z.number().int().min(1).max(5000).optional(),
+})
+
+const params = Schema.declare<z.infer<typeof paramsZod>>((input): input is z.infer<typeof paramsZod> => paramsZod.safeParse(input).success).annotate({
+  [ZodOverride]: paramsZod,
 })
 
 const description = `Manage scheduled cron-style jobs for this project.
@@ -67,10 +73,13 @@ function toSessionID(value: string | null | undefined) {
   return SessionID.make(value)
 }
 
-export const CronTool = Tool.define("cron", {
-  description,
-  parameters: params,
-  async execute(input, ctx) {
+export const CronTool = Tool.define("cron",
+  Effect.succeed({
+    description,
+    parameters: params,
+    execute(raw, ctx) {
+      return Effect.gen(function* () {
+        const input = raw as z.infer<typeof paramsZod>
     function reply(title: string, metadata: Record<string, unknown>, output: string) {
       return {
         title,
@@ -79,7 +88,7 @@ export const CronTool = Tool.define("cron", {
       }
     }
 
-    await ctx.ask({
+    yield* ctx.ask({
       permission: "cron",
       patterns: ["*"],
       always: ["*"],
@@ -89,59 +98,67 @@ export const CronTool = Tool.define("cron", {
     })
 
     if (input.action === "status") {
-      const output = await SessionCron.status({})
+      const output = yield* Effect.promise(() => SessionCron.status({}))
       return reply("cron status", output as Record<string, unknown>, JSON.stringify(output, null, 2))
     }
 
     if (input.action === "list") {
-      const jobs = await SessionCron.list({ includeDisabled: input.includeDisabled })
+      const jobs = yield* Effect.promise(() => SessionCron.list({ includeDisabled: input.includeDisabled }))
       return reply(`${jobs.length} cron jobs`, { jobs }, JSON.stringify({ jobs }, null, 2))
     }
 
     if (input.action === "add") {
-      if (!input.job) throw new Error("job is required for action=add")
-      const current = await Session.get(ctx.sessionID)
-      const job = await SessionCron.add({
-        ...input.job,
-        sessionID: toSessionID(input.job.sessionID) ?? current.id,
-        sessionKey: input.job.sessionKey ?? current.key,
-      })
+      const inputJob = input.job
+      if (!inputJob) throw new Error("job is required for action=add")
+      const current = yield* Effect.promise(() => Session.get(ctx.sessionID))
+      const job = yield* Effect.promise(() => SessionCron.add({
+        ...inputJob,
+        sessionID: toSessionID(inputJob.sessionID) ?? current.id,
+        sessionKey: inputJob.sessionKey ?? current.key,
+      }))
       return reply(`cron ${job.name}`, { job }, JSON.stringify(job, null, 2))
     }
 
     if (input.action === "update") {
-      if (!input.jobId) throw new Error("jobId is required for action=update")
-      if (!input.patch) throw new Error("patch is required for action=update")
-      const job = await SessionCron.update({
-        id: input.jobId,
+      const jobId = input.jobId
+      const patch = input.patch
+      if (!jobId) throw new Error("jobId is required for action=update")
+      if (!patch) throw new Error("patch is required for action=update")
+      const job = yield* Effect.promise(() => SessionCron.update({
+        id: jobId,
         patch: {
-          ...input.patch,
-          sessionID: toSessionID(input.patch.sessionID),
+          ...patch,
+          sessionID: toSessionID(patch.sessionID),
         },
-      })
+      }))
       return reply(`cron ${job.name}`, { job }, JSON.stringify(job, null, 2))
     }
 
     if (input.action === "remove") {
-      if (!input.jobId) throw new Error("jobId is required for action=remove")
-      const result = await SessionCron.remove({ id: input.jobId })
+      const jobId = input.jobId
+      if (!jobId) throw new Error("jobId is required for action=remove")
+      const result = yield* Effect.promise(() => SessionCron.remove({ id: jobId }))
       return reply("cron remove", result as Record<string, unknown>, JSON.stringify(result, null, 2))
     }
 
     if (input.action === "run") {
-      if (!input.jobId) throw new Error("jobId is required for action=run")
-      const result = await SessionCron.run({
-        id: input.jobId,
+      const jobId = input.jobId
+      if (!jobId) throw new Error("jobId is required for action=run")
+      const result = yield* Effect.promise(() => SessionCron.run({
+        id: jobId,
         mode: input.mode,
-      })
+      }))
       return reply("cron run", result as Record<string, unknown>, JSON.stringify(result, null, 2))
     }
 
-    if (!input.jobId) throw new Error("jobId is required for action=runs")
-    const entries = await SessionCron.runs({
-      id: input.jobId,
+    const jobId = input.jobId
+    if (!jobId) throw new Error("jobId is required for action=runs")
+    const entries = yield* Effect.promise(() => SessionCron.runs({
+      id: jobId,
       limit: input.limit,
-    })
+    }))
     return reply("cron runs", { entries }, JSON.stringify({ entries }, null, 2))
-  },
-})
+       })
+    },
+  }),
+)
