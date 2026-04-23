@@ -32,7 +32,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-SERVER_FILE="$REPO_DIR/packages/opencode/src/server/server.ts"
+SERVER_FILE="$REPO_DIR/packages/opencode/src/server/middleware.ts"
 SYNC_FILE="$REPO_DIR/packages/app/src/context/sync.tsx"
 SESSION_FILE="$REPO_DIR/packages/app/src/pages/session.tsx"
 TURN_FILE="$REPO_DIR/packages/ui/src/components/session-turn.tsx"
@@ -56,8 +56,8 @@ require_grep() {
   fi
 }
 
-require_grep 'const isLocalBypassHost = (value?: string | null) => {' "$SERVER_FILE" 'localhost auth bypass helper is missing from server.ts'
-require_grep 'if (isLocalBypassHost(c.req.header("host"))) return next()' "$SERVER_FILE" 'localhost auth bypass middleware is missing from server.ts'
+require_grep 'const isLocalBypassHost = (value?: string | null) => {' "$SERVER_FILE" 'localhost auth bypass helper is missing from middleware.ts'
+require_grep 'if (isLocalBypassHost(c.req.header("host"))) return next()' "$SERVER_FILE" 'localhost auth bypass middleware is missing from middleware.ts'
 require_grep 'const force = opts?.force || opts?.refresh === true' "$SYNC_FILE" 'force-aware session sync is missing from sync.tsx'
 require_grep 'if (cached && hasSession && !force) return' "$SYNC_FILE" 'force bypass logic is missing from sync.tsx'
 require_grep 'window.setInterval(() => {' "$SESSION_FILE" 'periodic Mac Web resync timer is missing from session.tsx'
