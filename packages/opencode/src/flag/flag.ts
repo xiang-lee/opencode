@@ -55,6 +55,9 @@ export const Flag = {
   get OPENCODE_SERVER_USERNAME() {
     return process.env["OPENCODE_SERVER_USERNAME"]
   },
+  get OPENCODE_DEFAULT_DIRECTORY() {
+    return process.env["OPENCODE_DEFAULT_DIRECTORY"]
+  },
   OPENCODE_ENABLE_QUESTION_TOOL: truthy("OPENCODE_ENABLE_QUESTION_TOOL"),
 
   // Experimental
